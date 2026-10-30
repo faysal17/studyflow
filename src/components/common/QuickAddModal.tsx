@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useStudyData } from '../../hooks/useStudyData';
-import { bulkAddTopics, db } from '../../db';
+import { bulkAddTopics, addSingleTopic, db } from '../../db';
 import { createPipelineStepsForTopic } from '../../db/seedData';
 import { getTodayDateString, getTomorrowDateString } from '../../utils/dateUtils';
 import type { Topic } from '../../types';
@@ -54,10 +54,7 @@ export const QuickAddModal: React.FC = () => {
 
       const steps = createPipelineStepsForTopic(topicId, 0);
 
-      await db.transaction('rw', [db.topics, db.steps], async () => {
-        await db.topics.add(newTopic);
-        await db.steps.bulkAdd(steps);
-      });
+      await addSingleTopic(newTopic, steps);
 
       showToast(`Added: "${newTopic.title}" (${scheduleTarget === 'backlog' ? 'Backlog' : scheduleTarget})`);
       setSingleTitle('');

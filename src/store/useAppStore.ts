@@ -3,6 +3,7 @@ import type { Topic } from '../types';
 
 export type MainNavView = 'today' | 'tomorrow' | 'upcoming' | 'this_week' | 'backlog' | 'matrix' | 'performance' | 'archive';
 export type TimerMode = 'pomodoro' | 'deep_work' | 'stopwatch';
+export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 
 export interface ToastAction {
   label: string;
@@ -52,12 +53,24 @@ interface AppState {
   toastAction: ToastAction | null;
   showToast: (msg: string, action?: ToastAction | null, duration?: number) => void;
   clearToast: () => void;
+
+  // Cloud Sync
+  cloudSyncStatus: CloudSyncStatus;
+  setCloudSyncStatus: (status: CloudSyncStatus) => void;
+  lastCloudSyncTime: number | null;
+  setLastCloudSyncTime: (time: number | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Navigation
   activeView: 'today',
   setActiveView: (view) => set({ activeView: view }),
+
+  // Cloud Sync
+  cloudSyncStatus: 'idle',
+  setCloudSyncStatus: (status) => set({ cloudSyncStatus: status }),
+  lastCloudSyncTime: null,
+  setLastCloudSyncTime: (time) => set({ lastCloudSyncTime: time }),
 
   // Modals & Panels
   isQuickAddOpen: false,

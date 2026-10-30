@@ -1,4 +1,5 @@
-import { db } from '../db';
+import { db, onDatabaseChange } from '../db';
+import { useAppStore } from '../store/useAppStore';
 import type { SubjectLabel, Topic, PipelineStep, MissedQuestion, VocabItem, SprintHistory, AppSetting } from '../types';
 
 export interface DatabaseBackup {
@@ -24,6 +25,12 @@ export interface SupabaseConfig {
 
 const SUPABASE_CONFIG_KEY = 'studyflow_supabase_config';
 const LAST_SYNC_KEY = 'studyflow_last_sync_timestamp';
+
+// In-memory sync management state
+let autoSyncTimeout: any = null;
+let isSyncInProgress = false;
+let hasPendingChanges = false;
+let isImportingData = false;
 
 export const syncService = {
   /**
@@ -61,41 +68,50 @@ export const syncService = {
       throw new Error('Invalid backup schema. Required collections missing.');
     }
 
-    await db.transaction('rw', [
-      db.subjects,
-      db.topics,
-      db.steps,
-      db.missedQuestions,
-      db.vocab,
-      db.sprintHistory,
-      db.settings
-    ], async () => {
-      await db.subjects.clear();
-      await db.topics.clear();
-      await db.steps.clear();
-      await db.missedQuestions.clear();
-      await db.vocab.clear();
-      await db.sprintHistory.clear();
-      await db.settings.clear();
+    isImportingData = true;
+    try {
+      await db.transaction('rw', [
+        db.subjects,
+        db.topics,
+        db.steps,
+        db.missedQuestions,
+        db.vocab,
+        db.sprintHistory,
+        db.settings
+      ], async () => {
+        await db.subjects.clear();
+        await db.topics.clear();
+        await db.steps.clear();
+        await db.missedQuestions.clear();
+        await db.vocab.clear();
+        await db.sprintHistory.clear();
+        await db.settings.clear();
 
-      await db.subjects.bulkAdd(backup.data.subjects);
-      await db.topics.bulkAdd(backup.data.topics);
-      await db.steps.bulkAdd(backup.data.steps);
-      if (backup.data.missedQuestions?.length) {
-        await db.missedQuestions.bulkAdd(backup.data.missedQuestions);
-      }
-      if (backup.data.vocab?.length) {
-        await db.vocab.bulkAdd(backup.data.vocab);
-      }
-      if (backup.data.sprintHistory?.length) {
-        await db.sprintHistory.bulkAdd(backup.data.sprintHistory);
-      }
-      if (backup.data.settings?.length) {
-        await db.settings.bulkAdd(backup.data.settings);
-      }
-    });
-
-    return true;
+        await db.subjects.bulkAdd(backup.data.subjects);
+        await db.topics.bulkAdd(backup.data.topics);
+        await db.steps.bulkAdd(backup.data.steps);
+        if (backup.data.missedQuestions?.length) {
+          await db.missedQuestions.bulkAdd(backup.data.missedQuestions);
+        }
+        if (backup.data.vocab?.length) {
+          await db.vocab.bulkAdd(backup.data.vocab);
+        }
+        if (backup.data.sprintHistory?.length) {
+          await db.sprintHistory.bulkAdd(backup.data.sprintHistory);
+        }
+        if (backup.data.settings?.length) {
+          await db.settings.bulkAdd(backup.data.settings);
+        }
+        // Protect dummy data purge migration status
+        await db.settings.put({ key: 'dummyDataClearedV1', value: true });
+      });
+      return true;
+    } finally {
+      // Re-enable DB mutation listener after short pause
+      setTimeout(() => {
+        isImportingData = false;
+      }, 500);
+    }
   },
 
   /**
@@ -112,7 +128,11 @@ export const syncService = {
     try {
       const item = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (item) {
-        return JSON.parse(item);
+        const parsed = JSON.parse(item);
+        return {
+          ...parsed,
+          autoSync: parsed.autoSync !== undefined ? parsed.autoSync : true
+        };
       }
     } catch (e) {
       console.error('Failed to parse Supabase config:', e);
@@ -123,7 +143,7 @@ export const syncService = {
       url: envUrl,
       anonKey: envKey,
       enabled: !!(envUrl && envKey),
-      autoSync: false
+      autoSync: true
     };
   },
 
@@ -169,6 +189,32 @@ export const syncService = {
         success: false,
         message: err.message || 'Network error while contacting Supabase instance.'
       };
+    }
+  },
+
+  /**
+   * Fetch remote synced_at timestamp from Supabase without downloading whole payload
+   */
+  async getRemoteSyncTimestamp(config: SupabaseConfig): Promise<number | null> {
+    if (!config.enabled || !config.url || !config.anonKey) return null;
+    const baseUrl = config.url.replace(/\/$/, '');
+    try {
+      const response = await fetch(`${baseUrl}/rest/v1/studyflow_sync?id=eq.default_user&select=synced_at`, {
+        method: 'GET',
+        headers: {
+          apikey: config.anonKey,
+          Authorization: `Bearer ${config.anonKey}`,
+          Accept: 'application/json'
+        }
+      });
+      if (!response.ok) return null;
+      const rows = await response.json();
+      if (rows && rows.length > 0 && typeof rows[0]?.synced_at === 'number') {
+        return rows[0].synced_at;
+      }
+      return null;
+    } catch {
+      return null;
     }
   },
 
@@ -244,10 +290,134 @@ export const syncService = {
       }
 
       await this.importData(rows[0].payload);
+      if (rows[0].synced_at) {
+        this.setLastSyncTime(rows[0].synced_at);
+      }
       const count = rows[0].payload?.data?.topics?.length || 0;
       return { success: true, count };
     } catch (e: any) {
       throw new Error(`Cloud download error: ${e.message}`);
     }
+  },
+
+  /**
+   * Immediately push any pending changes to Supabase
+   */
+  async flushPendingSync(): Promise<void> {
+    const config = this.getSupabaseConfig();
+    if (!config.enabled || !config.url || !config.anonKey) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      useAppStore.getState().setCloudSyncStatus('offline');
+      return;
+    }
+
+    if (isSyncInProgress) return;
+
+    try {
+      isSyncInProgress = true;
+      useAppStore.getState().setCloudSyncStatus('syncing');
+      const res = await this.performCloudSync(config);
+      hasPendingChanges = false;
+      useAppStore.getState().setLastCloudSyncTime(res.syncedAt);
+      useAppStore.getState().setCloudSyncStatus('synced');
+    } catch (err) {
+      console.warn('Auto-sync flush failed:', err);
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        useAppStore.getState().setCloudSyncStatus('offline');
+      } else {
+        useAppStore.getState().setCloudSyncStatus('error');
+      }
+    } finally {
+      isSyncInProgress = false;
+    }
+  },
+
+  /**
+   * Trigger a debounced automatic background push to Supabase
+   */
+  triggerAutoSync(delayMs = 2000): void {
+    const config = this.getSupabaseConfig();
+    if (!config.enabled || !config.autoSync || !config.url || !config.anonKey) {
+      return;
+    }
+
+    hasPendingChanges = true;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      useAppStore.getState().setCloudSyncStatus('offline');
+      return;
+    }
+
+    if (autoSyncTimeout) {
+      clearTimeout(autoSyncTimeout);
+    }
+
+    autoSyncTimeout = setTimeout(async () => {
+      await syncService.flushPendingSync();
+    }, delayMs);
+  },
+
+  /**
+   * Smart synchronization on startup, window focus, or reconnection:
+   * - If local mutations are pending, flushes them to cloud.
+   * - Otherwise checks remote synced_at timestamp. If remote is newer, pulls silently into Dexie!
+   */
+  async smartSyncOnStartupOrFocus(): Promise<void> {
+    const config = this.getSupabaseConfig();
+    if (!config.enabled || !config.autoSync || !config.url || !config.anonKey) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      useAppStore.getState().setCloudSyncStatus('offline');
+      return;
+    }
+
+    // If local changes were made while offline or pending debounce, push first
+    if (hasPendingChanges) {
+      await this.flushPendingSync();
+      return;
+    }
+
+    try {
+      const remoteTimestamp = await this.getRemoteSyncTimestamp(config);
+      if (remoteTimestamp === null) {
+        const localTime = this.getLastSyncTime();
+        if (localTime) {
+          useAppStore.getState().setLastCloudSyncTime(localTime);
+          useAppStore.getState().setCloudSyncStatus('synced');
+        }
+        return;
+      }
+
+      const localLastSync = this.getLastSyncTime() || 0;
+
+      // If remote has newer data (e.g. from another tab or device)
+      if (remoteTimestamp > localLastSync + 1000) {
+        useAppStore.getState().setCloudSyncStatus('syncing');
+        await this.pullCloudSync(config);
+        this.setLastSyncTime(remoteTimestamp);
+        useAppStore.getState().setLastCloudSyncTime(remoteTimestamp);
+        useAppStore.getState().setCloudSyncStatus('synced');
+        useAppStore.getState().showToast('⚡ Cloud changes synchronized');
+      } else {
+        // Local is fully up to date with remote
+        this.setLastSyncTime(remoteTimestamp);
+        useAppStore.getState().setLastCloudSyncTime(remoteTimestamp);
+        useAppStore.getState().setCloudSyncStatus('synced');
+      }
+    } catch (e) {
+      console.warn('Smart sync check error:', e);
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        useAppStore.getState().setCloudSyncStatus('offline');
+      }
+    }
   }
 };
+
+// Automatically subscribe to local IndexedDB mutations across the app
+onDatabaseChange(() => {
+  if (isImportingData) return;
+  syncService.triggerAutoSync();
+});

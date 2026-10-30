@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { initializeDatabase } from './db';
+import { syncService } from './services/syncService';
 import { useAppStore } from './store/useAppStore';
 import { Sidebar } from './components/navigation/Sidebar';
 import { TodayView } from './components/views/TodayView';
@@ -20,11 +21,47 @@ export function App() {
 
   useEffect(() => {
     initializeDatabase()
-      .then(() => setIsDbReady(true))
+      .then(() => {
+        setIsDbReady(true);
+        // Smart cloud sync check on startup
+        syncService.smartSyncOnStartupOrFocus();
+      })
       .catch((err) => {
         console.error('Failed to initialize database:', err);
         setIsDbReady(true);
       });
+
+    const handleFocus = () => {
+      syncService.smartSyncOnStartupOrFocus();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncService.smartSyncOnStartupOrFocus();
+      }
+    };
+
+    const handleOnline = () => {
+      useAppStore.getState().setCloudSyncStatus('syncing');
+      syncService.flushPendingSync();
+      syncService.smartSyncOnStartupOrFocus();
+    };
+
+    const handleOffline = () => {
+      useAppStore.getState().setCloudSyncStatus('offline');
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   if (!isDbReady) {

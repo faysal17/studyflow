@@ -16,7 +16,8 @@ import {
   VolumeX,
   Zap,
   Menu,
-  X
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { playStepCompleteSound } from '../../utils/soundUtils';
 
@@ -27,7 +28,8 @@ export const Sidebar: React.FC = () => {
     setIsQuickAddOpen, 
     setIsSyncModalOpen,
     soundEnabled,
-    setSoundEnabled
+    setSoundEnabled,
+    cloudSyncStatus
   } = useAppStore();
 
   const { 
@@ -294,13 +296,40 @@ export const Sidebar: React.FC = () => {
         <div className="p-3 border-t border-[#222634] flex items-center justify-between gap-2">
           <button
             onClick={() => setIsSyncModalOpen(true)}
-            className="flex-1 flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#1a1d26] transition-colors cursor-pointer"
+            className="flex-1 flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-[#a1a1aa] hover:text-[#f4f4f5] hover:bg-[#1a1d26] transition-colors cursor-pointer group"
           >
             <span className="flex items-center gap-2">
-              <Database className="w-3.5 h-3.5 text-[#71717a]" />
-              <span>Offline / Sync</span>
+              <Database className="w-3.5 h-3.5 text-[#71717a] group-hover:text-zinc-300 transition-colors" />
+              <span>Cloud Sync</span>
             </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <div className="flex items-center gap-1.5">
+              {cloudSyncStatus === 'syncing' ? (
+                <span className="flex items-center gap-1 text-[11px] text-amber-400 font-mono">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Syncing
+                </span>
+              ) : cloudSyncStatus === 'synced' ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                  Synced
+                </span>
+              ) : cloudSyncStatus === 'offline' ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                  Offline
+                </span>
+              ) : cloudSyncStatus === 'error' ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-rose-400 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  Error
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                  Local
+                </span>
+              )}
+            </div>
           </button>
 
           <button

@@ -6,7 +6,7 @@ import { formatTime } from '../../utils/dateUtils';
 import { X, Download, Upload, RefreshCw, AlertCircle, Trash2 } from 'lucide-react';
 
 export const SyncModal: React.FC = () => {
-  const { isSyncModalOpen, setIsSyncModalOpen, showToast } = useAppStore();
+  const { isSyncModalOpen, setIsSyncModalOpen, showToast, cloudSyncStatus } = useAppStore();
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(syncService.getSupabaseConfig());
   const [isTesting, setIsTesting] = useState(false);
@@ -145,10 +145,21 @@ export const SyncModal: React.FC = () => {
 
         {/* Local-first status */}
         <div className="text-[#a1a1aa] space-y-1">
-          <p className="text-zinc-200 font-medium">Local-first IndexedDB is active (100% offline).</p>
-          {lastSyncTime && (
-            <p className="text-[11px] text-[#71717a] font-mono">Last sync: {formatTime(lastSyncTime)}</p>
-          )}
+          <p className="text-zinc-200 font-medium">Local-first IndexedDB is active (100% offline-ready)</p>
+          <p className="text-[11px] text-[#71717a] font-mono">
+            Status:{' '}
+            {cloudSyncStatus === 'syncing' ? (
+              <span className="text-amber-400">Syncing in background...</span>
+            ) : cloudSyncStatus === 'synced' ? (
+              <span className="text-emerald-400">Synced to Cloud {lastSyncTime ? `• ${formatTime(lastSyncTime)}` : ''}</span>
+            ) : cloudSyncStatus === 'offline' ? (
+              <span className="text-zinc-500">Offline (Will sync when reconnected)</span>
+            ) : cloudSyncStatus === 'error' ? (
+              <span className="text-rose-400">Sync error</span>
+            ) : (
+              <span className="text-zinc-400">Local Only</span>
+            )}
+          </p>
         </div>
 
         {/* Backup / Export */}
@@ -235,17 +246,49 @@ export const SyncModal: React.FC = () => {
         </div>
 
         {/* Supabase Config */}
-        <div className="space-y-2 pt-2 border-t border-[#222634]">
+        <div className="space-y-2.5 pt-2 border-t border-[#222634]">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-[#a1a1aa] font-medium">Supabase Cloud Sync</span>
             <label className="flex items-center gap-1.5 cursor-pointer text-[#a1a1aa] hover:text-[#f4f4f5]">
               <input
                 type="checkbox"
                 checked={supabaseConfig.enabled}
-                onChange={(e) => setSupabaseConfig({ ...supabaseConfig, enabled: e.target.checked })}
+                onChange={(e) => {
+                  const updated = { ...supabaseConfig, enabled: e.target.checked };
+                  setSupabaseConfig(updated);
+                  syncService.saveSupabaseConfig(updated);
+                  if (updated.enabled && updated.autoSync) {
+                    syncService.triggerAutoSync(300);
+                  }
+                }}
                 className="accent-emerald-500 cursor-pointer"
               />
-              <span className="text-xs">Enable</span>
+              <span className="text-xs">Enabled</span>
+            </label>
+          </div>
+
+          {/* Auto-Sync Toggle Row */}
+          <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-900/60 border border-zinc-800/80">
+            <div>
+              <span className="text-xs font-medium text-zinc-200 block">Automatic Background Sync</span>
+              <span className="text-[10px] text-zinc-500">Auto-push changes (2s debounce) & sync on startup/focus</span>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                disabled={!supabaseConfig.enabled}
+                checked={supabaseConfig.autoSync}
+                onChange={(e) => {
+                  const updated = { ...supabaseConfig, autoSync: e.target.checked };
+                  setSupabaseConfig(updated);
+                  syncService.saveSupabaseConfig(updated);
+                  if (e.target.checked) {
+                    syncService.triggerAutoSync(300);
+                  }
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-8 h-4 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 peer-disabled:opacity-40"></div>
             </label>
           </div>
 

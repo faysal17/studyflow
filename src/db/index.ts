@@ -59,6 +59,27 @@ export class StudyFlowDatabase extends Dexie {
 
 export const db = new StudyFlowDatabase();
 
+// Reactive DB change listener for automatic background cloud sync
+type DbChangeListener = () => void;
+const dbChangeListeners = new Set<DbChangeListener>();
+
+export function onDatabaseChange(listener: DbChangeListener): () => void {
+  dbChangeListeners.add(listener);
+  return () => {
+    dbChangeListeners.delete(listener);
+  };
+}
+
+export function notifyDatabaseChange(): void {
+  dbChangeListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (e) {
+      console.error('Error in database change listener:', e);
+    }
+  });
+}
+
 /**
  * Initialize and seed the database if empty
  */
@@ -125,6 +146,18 @@ export async function clearAllUserData(): Promise<void> {
     await db.sprintHistory.clear();
     await db.settings.put({ key: 'dummyDataClearedV1', value: true });
   });
+  notifyDatabaseChange();
+}
+
+/**
+ * Add a single new topic and its 5 pipeline steps
+ */
+export async function addSingleTopic(topic: Topic, steps: PipelineStep[]): Promise<void> {
+  await db.transaction('rw', [db.topics, db.steps], async () => {
+    await db.topics.add(topic);
+    await db.steps.bulkAdd(steps);
+  });
+  notifyDatabaseChange();
 }
 
 /**
@@ -137,6 +170,7 @@ export async function clearAllUserData(): Promise<void> {
 export async function setTopicPassDate(topicId: string, pass: 1 | 2 | 3, date: string | null): Promise<void> {
   const field = pass === 1 ? 'pass1Date' : (pass === 2 ? 'pass2Date' : 'pass3Date');
   await db.topics.update(topicId, { [field]: date });
+  notifyDatabaseChange();
 }
 
 /**
@@ -151,13 +185,14 @@ export async function setTopicAllPassDates(
     pass2Date: dates.pass2Date,
     pass3Date: dates.pass3Date
   });
+  notifyDatabaseChange();
 }
 
 /**
  * Toggle Pass 1 completion state
  */
 export async function togglePass1Completion(topicId: string): Promise<boolean> {
-  return await db.transaction('rw', db.topics, async () => {
+  const result = await db.transaction('rw', db.topics, async () => {
     const topic = await db.topics.get(topicId);
     if (!topic) return false;
 
@@ -172,13 +207,15 @@ export async function togglePass1Completion(topicId: string): Promise<boolean> {
 
     return newCompleted;
   });
+  notifyDatabaseChange();
+  return result;
 }
 
 /**
  * Toggle Pass 2 completion state (marks all 5 steps complete if incomplete, or resets step 5)
  */
 export async function togglePass2Completion(topicId: string): Promise<boolean> {
-  return await db.transaction('rw', [db.steps, db.topics], async () => {
+  const result = await db.transaction('rw', [db.steps, db.topics], async () => {
     const topic = await db.topics.get(topicId);
     if (!topic) return false;
 
@@ -203,13 +240,15 @@ export async function togglePass2Completion(topicId: string): Promise<boolean> {
 
     return newCompleted;
   });
+  notifyDatabaseChange();
+  return result;
 }
 
 /**
  * Toggle Pass 3 completion state
  */
 export async function togglePass3Completion(topicId: string): Promise<boolean> {
-  return await db.transaction('rw', db.topics, async () => {
+  const result = await db.transaction('rw', db.topics, async () => {
     const topic = await db.topics.get(topicId);
     if (!topic) return false;
 
@@ -224,6 +263,8 @@ export async function togglePass3Completion(topicId: string): Promise<boolean> {
 
     return newCompleted;
   });
+  notifyDatabaseChange();
+  return result;
 }
 
 /**
@@ -231,6 +272,7 @@ export async function togglePass3Completion(topicId: string): Promise<boolean> {
  */
 export async function setStepScheduleDate(stepId: string, date: string | null): Promise<void> {
   await db.steps.update(stepId, { scheduledDate: date });
+  notifyDatabaseChange();
 }
 
 /**
@@ -238,7 +280,7 @@ export async function setStepScheduleDate(stepId: string, date: string | null): 
  * When all 5 steps are checked, automatically marks Pass 2 as completed and advances to Pass 3.
  */
 export async function toggleStepCompletion(stepId: string): Promise<boolean> {
-  return await db.transaction('rw', [db.steps, db.topics], async () => {
+  const result = await db.transaction('rw', [db.steps, db.topics], async () => {
     const step = await db.steps.get(stepId);
     if (!step) return false;
 
@@ -266,6 +308,8 @@ export async function toggleStepCompletion(stepId: string): Promise<boolean> {
 
     return newCompleted;
   });
+  notifyDatabaseChange();
+  return result;
 }
 
 /**
@@ -308,6 +352,7 @@ export async function bulkAddTopics(
     await db.topics.bulkAdd(topicsToAdd);
     await db.steps.bulkAdd(stepsToAdd);
   });
+  notifyDatabaseChange();
 
   return topicsToAdd.length;
 }
@@ -317,6 +362,7 @@ export async function bulkAddTopics(
  */
 export async function updateTopicOrder(topicId: string, newOrder: number): Promise<void> {
   await db.topics.update(topicId, { order: newOrder });
+  notifyDatabaseChange();
 }
 
 /**
@@ -328,6 +374,7 @@ export async function deleteTopic(topicId: string): Promise<void> {
     await db.steps.where('topicId').equals(topicId).delete();
     await db.missedQuestions.where('topicId').equals(topicId).delete();
   });
+  notifyDatabaseChange();
 }
 
 /**
@@ -338,7 +385,7 @@ export async function deleteTopicWithUndo(topicId: string): Promise<{
   steps: PipelineStep[];
   missedQuestions: MissedQuestion[];
 }> {
-  return await db.transaction('rw', [db.topics, db.steps, db.missedQuestions], async () => {
+  const result = await db.transaction('rw', [db.topics, db.steps, db.missedQuestions], async () => {
     const topic = await db.topics.get(topicId);
     const steps = await db.steps.where('topicId').equals(topicId).toArray();
     const missedQuestions = await db.missedQuestions.where('topicId').equals(topicId).toArray();
@@ -349,6 +396,8 @@ export async function deleteTopicWithUndo(topicId: string): Promise<{
 
     return { topic, steps, missedQuestions };
   });
+  notifyDatabaseChange();
+  return result;
 }
 
 /**
@@ -369,6 +418,7 @@ export async function restoreDeletedTopic(snapshot: {
       await db.missedQuestions.put(mq);
     }
   });
+  notifyDatabaseChange();
 }
 
 /**
@@ -381,6 +431,7 @@ export async function addTopicToSprint(topicId: string, sprintWeekId?: string): 
     sprintWeekId: weekId,
     status: 'in_sprint'
   });
+  notifyDatabaseChange();
 }
 
 /**
@@ -391,6 +442,7 @@ export async function removeTopicFromSprint(topicId: string): Promise<void> {
     inSprint: false,
     status: 'backlog'
   });
+  notifyDatabaseChange();
 }
 
 /**
@@ -408,7 +460,7 @@ export async function completeAndCloseSprint(options: { rollOverToNextSprint: bo
   const currentWeek = range.sprintWeekId;
   const nextWeek = getNextSprintWeekId(currentWeek);
 
-  return await db.transaction('rw', [db.topics, db.steps, db.sprintHistory, db.settings], async () => {
+  const result = await db.transaction('rw', [db.topics, db.steps, db.sprintHistory, db.settings], async () => {
     const allTopics = await db.topics.toArray();
     const allSteps = await db.steps.toArray();
 
@@ -481,4 +533,6 @@ export async function completeAndCloseSprint(options: { rollOverToNextSprint: bo
       rolledOverCount: rolledOverTopicIds.length
     };
   });
+  notifyDatabaseChange();
+  return result;
 }
