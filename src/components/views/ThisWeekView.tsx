@@ -25,7 +25,8 @@ import {
   Layers, 
   CalendarDays, 
   Sparkles,
-  RotateCcw
+  RotateCcw,
+  CheckSquare
 } from 'lucide-react';
 import type { Topic, PipelineStep, SubjectLabel } from '../../types';
 
@@ -34,20 +35,58 @@ interface SprintRowProps {
   subject?: SubjectLabel;
   steps: PipelineStep[];
   onSchedule: (topic: Topic) => void;
+  isSelected?: boolean;
+  onToggleSelect?: (topicId: string, isShiftClick: boolean) => void;
 }
 
 const SprintTopicRow: React.FC<SprintRowProps> = ({
   topic,
   subject,
   steps,
-  onSchedule
+  onSchedule,
+  isSelected: propsIsSelected,
+  onToggleSelect
 }) => {
-  const { soundEnabled, showToast } = useAppStore();
+  const { 
+    soundEnabled, 
+    showToast, 
+    selectedTopicIds, 
+    isMultiSelectMode, 
+    toggleTopicSelection 
+  } = useAppStore();
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const isSelected = propsIsSelected !== undefined 
+    ? propsIsSelected 
+    : selectedTopicIds.has(topic.id);
 
   const sortedSteps = [...steps].sort((a, b) => a.stepNumber - b.stepNumber);
   const completedSteps = sortedSteps.filter(s => s.isCompleted).length;
   const isMastered = topic.status === 'completed' || (topic.pass1Completed && topic.pass2Completed && topic.pass3Completed);
+
+  // Checkbox action for multi-select
+  const handleSelectCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onToggleSelect) {
+      onToggleSelect(topic.id, e.shiftKey);
+    } else {
+      toggleTopicSelection(topic.id, { isShiftClick: e.shiftKey });
+    }
+  };
+
+  // Row Click for Shift/Cmd/Select-Mode
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey || isMultiSelectMode) {
+      const target = e.target as HTMLElement;
+      if (target.closest('button') || target.closest('input')) return;
+
+      if (onToggleSelect) {
+        onToggleSelect(topic.id, e.shiftKey);
+      } else {
+        toggleTopicSelection(topic.id, { isShiftClick: e.shiftKey });
+      }
+    }
+  };
 
   // Checkbox action
   const handleCheckboxClick = async (e: React.MouseEvent) => {
@@ -109,8 +148,31 @@ const SprintTopicRow: React.FC<SprintRowProps> = ({
   };
 
   return (
-    <div className="group flex flex-col py-3 px-3 rounded-lg hover:bg-[#1a1d26] border-b border-[#222634] transition-colors">
-      <div className="flex items-center gap-3 w-full">
+    <div 
+      onClick={handleRowClick}
+      className={`group flex flex-col py-3 px-3 rounded-lg border-b transition-all border-l-2 ${
+        isSelected
+          ? 'bg-zinc-800/45 border-l-emerald-500 border-b-zinc-800 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.12)]'
+          : 'hover:bg-[#1a1d26] border-b-[#222634] border-l-transparent'
+      }`}
+    >
+      <div className="flex items-center gap-2.5 w-full">
+        {/* Square Selection Checkbox */}
+        <button
+          type="button"
+          onClick={handleSelectCheckboxClick}
+          className={`w-4 h-4 rounded border flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+            isSelected
+              ? 'bg-emerald-500 border-emerald-500 text-black shadow-sm'
+              : isMultiSelectMode || selectedTopicIds.size > 0
+                ? 'border-zinc-600 hover:border-zinc-400 bg-zinc-900/60'
+                : 'opacity-0 group-hover:opacity-100 border-zinc-600 hover:border-zinc-400 bg-zinc-900/40'
+          }`}
+          title={isSelected ? 'Deselect topic (Shift+Click for range)' : 'Select topic (Shift+Click for range)'}
+        >
+          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+        </button>
+
         {/* 18px Circular Checkbox */}
         <button
           type="button"
@@ -253,7 +315,18 @@ export const ThisWeekView: React.FC = () => {
     currentSprintRange 
   } = useStudyData();
 
-  const { setSelectedTopicForSchedule, setActiveView, showToast, soundEnabled } = useAppStore();
+  const { 
+    setSelectedTopicForSchedule, 
+    setActiveView, 
+    showToast, 
+    soundEnabled,
+    selectedTopicIds,
+    isMultiSelectMode,
+    toggleMultiSelectMode,
+    toggleTopicSelection,
+    selectTopics,
+    deselectTopics
+  } = useAppStore();
 
   const [grouping, setGrouping] = useState<'day' | 'subject'>('day');
   const [searchQuery, setSearchQuery] = useState('');
@@ -268,6 +341,8 @@ export const ThisWeekView: React.FC = () => {
     const sub = subjectMap.get(t.labelId);
     return t.title.toLowerCase().includes(query) || sub?.name.toLowerCase().includes(query);
   });
+
+  const allVisibleTopicIds = filteredTopics.map(t => t.id);
 
   // Calculate sprint completion breakdown
   const completedTopics = filteredTopics.filter(t => 
@@ -352,6 +427,21 @@ export const ThisWeekView: React.FC = () => {
         counter={`Sprint: ${currentSprintRange.formattedRange} • ${thisWeekTopics.length} committed`}
         actions={
           <div className="flex items-center gap-2">
+            {/* Multi-Select Toggle Button */}
+            <button
+              type="button"
+              onClick={() => toggleMultiSelectMode()}
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors cursor-pointer flex items-center gap-1.5 select-none ${
+                isMultiSelectMode || selectedTopicIds.size > 0
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700/60'
+              }`}
+              title={isMultiSelectMode ? 'Exit multi-select mode' : 'Select multiple topics for batch actions'}
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{isMultiSelectMode || selectedTopicIds.size > 0 ? 'Select Multiple' : 'Select'}</span>
+            </button>
+
             {/* Grouping Toggle: Day / Subject */}
             <div className="flex items-center p-0.5 rounded-md bg-zinc-900/60 border border-zinc-800">
               <button
@@ -400,6 +490,29 @@ export const ThisWeekView: React.FC = () => {
       />
 
       <div className="max-w-6xl w-full mx-auto px-8 py-6 space-y-6">
+        {/* Select All Visible Quick Bar */}
+        {(isMultiSelectMode || selectedTopicIds.size > 0) && filteredTopics.length > 0 && (
+          <div className="flex items-center justify-between text-xs py-2 px-3 bg-zinc-900/70 border border-zinc-800/80 rounded-lg text-zinc-400 animate-in fade-in">
+            <span>
+              <strong className="text-zinc-200">{selectedTopicIds.size}</strong> of {filteredTopics.length} sprint topics selected
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const allSelected = allVisibleTopicIds.length > 0 && allVisibleTopicIds.every(id => selectedTopicIds.has(id));
+                if (allSelected) {
+                  deselectTopics(allVisibleTopicIds);
+                } else {
+                  selectTopics(allVisibleTopicIds);
+                }
+              }}
+              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer"
+            >
+              {allVisibleTopicIds.every(id => selectedTopicIds.has(id)) ? 'Deselect All Visible' : 'Select All Visible'}
+            </button>
+          </div>
+        )}
+
         {/* Empty State */}
         {filteredTopics.length === 0 ? (
           <div className="py-20 text-center space-y-4">
@@ -463,6 +576,9 @@ export const ThisWeekView: React.FC = () => {
                             subject={subjectMap.get(topic.labelId)}
                             steps={stepsByTopic.get(topic.id) || []}
                             onSchedule={setSelectedTopicForSchedule}
+                            onToggleSelect={(topicId, isShiftClick) => {
+                              toggleTopicSelection(topicId, { isShiftClick, orderedTopicIds: allVisibleTopicIds });
+                            }}
                           />
                         ))}
                       </div>
@@ -495,6 +611,9 @@ export const ThisWeekView: React.FC = () => {
                           subject={subjectMap.get(topic.labelId)}
                           steps={stepsByTopic.get(topic.id) || []}
                           onSchedule={setSelectedTopicForSchedule}
+                          onToggleSelect={(topicId, isShiftClick) => {
+                            toggleTopicSelection(topicId, { isShiftClick, orderedTopicIds: allVisibleTopicIds });
+                          }}
                         />
                       ))}
                     </div>
@@ -534,6 +653,9 @@ export const ThisWeekView: React.FC = () => {
                             subject={subject}
                             steps={stepsByTopic.get(topic.id) || []}
                             onSchedule={setSelectedTopicForSchedule}
+                            onToggleSelect={(topicId, isShiftClick) => {
+                              toggleTopicSelection(topicId, { isShiftClick, orderedTopicIds: allVisibleTopicIds });
+                            }}
                           />
                         ))}
                       </div>

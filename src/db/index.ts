@@ -446,6 +446,150 @@ export async function removeTopicFromSprint(topicId: string): Promise<void> {
 }
 
 /**
+ * Batch add multiple topics to sprint
+ */
+export async function batchAddTopicsToSprint(topicIds: string[], sprintWeekId?: string): Promise<number> {
+  if (topicIds.length === 0) return 0;
+  const weekId = sprintWeekId || getCurrentSprintRange().sprintWeekId;
+  await db.transaction('rw', db.topics, async () => {
+    for (const id of topicIds) {
+      await db.topics.update(id, {
+        inSprint: true,
+        sprintWeekId: weekId,
+        status: 'in_sprint'
+      });
+    }
+  });
+  notifyDatabaseChange();
+  return topicIds.length;
+}
+
+/**
+ * Batch remove multiple topics from sprint
+ */
+export async function batchRemoveTopicsFromSprint(topicIds: string[]): Promise<number> {
+  if (topicIds.length === 0) return 0;
+  await db.transaction('rw', db.topics, async () => {
+    for (const id of topicIds) {
+      await db.topics.update(id, {
+        inSprint: false,
+        status: 'backlog'
+      });
+    }
+  });
+  notifyDatabaseChange();
+  return topicIds.length;
+}
+
+/**
+ * Batch set pass schedule date across multiple topics
+ * If pass is 'active', updates whichever pass is currently incomplete (Pass 1 -> Pass 2 -> Pass 3)
+ */
+export async function batchSetTopicPassDate(
+  topicIds: string[],
+  pass: 1 | 2 | 3 | 'active',
+  date: string | null
+): Promise<number> {
+  if (topicIds.length === 0) return 0;
+  const sprintRange = getCurrentSprintRange();
+
+  await db.transaction('rw', db.topics, async () => {
+    for (const id of topicIds) {
+      const topic = await db.topics.get(id);
+      if (!topic) continue;
+
+      let targetPass: 1 | 2 | 3 = 1;
+      if (pass === 'active') {
+        if (!topic.pass1Completed) targetPass = 1;
+        else if (!topic.pass2Completed) targetPass = 2;
+        else targetPass = 3;
+      } else {
+        targetPass = pass;
+      }
+
+      const field = targetPass === 1 ? 'pass1Date' : (targetPass === 2 ? 'pass2Date' : 'pass3Date');
+      const updates: Partial<Topic> = {
+        [field]: date
+      };
+
+      if (date) {
+        updates.inSprint = true;
+        updates.sprintWeekId = topic.sprintWeekId || sprintRange.sprintWeekId;
+        updates.status = topic.status === 'completed' ? 'completed' : 'in_sprint';
+      }
+
+      await db.topics.update(id, updates);
+    }
+  });
+  notifyDatabaseChange();
+  return topicIds.length;
+}
+
+/**
+ * Batch set pass advance/completion state
+ */
+export async function batchSetPassCompletion(
+  topicIds: string[],
+  targetPass: 1 | 2 | 3
+): Promise<number> {
+  if (topicIds.length === 0) return 0;
+  const now = Date.now();
+
+  await db.transaction('rw', [db.topics, db.steps], async () => {
+    for (const id of topicIds) {
+      const topic = await db.topics.get(id);
+      if (!topic) continue;
+
+      if (targetPass === 1) {
+        await db.topics.update(id, {
+          pass1Completed: true,
+          pass1CompletedAt: now,
+          status: topic.pass2Completed && topic.pass3Completed ? 'completed' : 'in_sprint'
+        });
+      } else if (targetPass === 2) {
+        // Complete Pass 2 and all its 5 steps
+        const steps = await db.steps.where('topicId').equals(id).toArray();
+        for (const step of steps) {
+          await db.steps.update(step.id, {
+            isCompleted: true,
+            completedAt: now
+          });
+        }
+        await db.topics.update(id, {
+          pass1Completed: true,
+          pass1CompletedAt: topic.pass1CompletedAt || now,
+          pass2Completed: true,
+          pass2CompletedAt: now,
+          currentPass: 3,
+          status: topic.pass3Completed ? 'completed' : 'in_sprint'
+        });
+      } else if (targetPass === 3) {
+        // Complete all passes -> 100% Mastered
+        const steps = await db.steps.where('topicId').equals(id).toArray();
+        for (const step of steps) {
+          await db.steps.update(step.id, {
+            isCompleted: true,
+            completedAt: now
+          });
+        }
+        await db.topics.update(id, {
+          pass1Completed: true,
+          pass1CompletedAt: topic.pass1CompletedAt || now,
+          pass2Completed: true,
+          pass2CompletedAt: topic.pass2CompletedAt || now,
+          pass3Completed: true,
+          pass3CompletedAt: now,
+          status: 'completed',
+          inSprint: false
+        });
+      }
+    }
+  });
+  notifyDatabaseChange();
+  return topicIds.length;
+}
+
+/**
  * Complete and Close Sprint:
  * - Archives all completed topics from this sprint
  * - Either rolls over incomplete topics to next Friday's sprint or returns them to backlog

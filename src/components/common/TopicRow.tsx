@@ -22,20 +22,59 @@ interface TopicRowProps {
   subject?: SubjectLabel;
   steps: PipelineStep[];
   showSubjectBadge?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (topicId: string, isShiftClick: boolean) => void;
 }
 
 export const TopicRow: React.FC<TopicRowProps> = ({
   topic,
   subject,
   steps,
-  showSubjectBadge = true
+  showSubjectBadge = true,
+  isSelected: propsIsSelected,
+  onToggleSelect
 }) => {
-  const { soundEnabled, showToast, setSelectedTopicForSchedule } = useAppStore();
+  const { 
+    soundEnabled, 
+    showToast, 
+    setSelectedTopicForSchedule,
+    selectedTopicIds,
+    isMultiSelectMode,
+    toggleTopicSelection
+  } = useAppStore();
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const isSelected = propsIsSelected !== undefined 
+    ? propsIsSelected 
+    : selectedTopicIds.has(topic.id);
 
   const sortedSteps = [...steps].sort((a, b) => a.stepNumber - b.stepNumber);
   const completedStepCount = sortedSteps.filter(s => s.isCompleted).length;
   const isMastered = topic.status === 'completed' || (topic.pass1Completed && topic.pass2Completed && topic.pass3Completed);
+
+  // Selection Checkbox Click Action
+  const handleSelectCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onToggleSelect) {
+      onToggleSelect(topic.id, e.shiftKey);
+    } else {
+      toggleTopicSelection(topic.id, { isShiftClick: e.shiftKey });
+    }
+  };
+
+  // Row Click for Shift/Cmd/Select-Mode
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey || isMultiSelectMode) {
+      const target = e.target as HTMLElement;
+      if (target.closest('button') || target.closest('input')) return;
+
+      if (onToggleSelect) {
+        onToggleSelect(topic.id, e.shiftKey);
+      } else {
+        toggleTopicSelection(topic.id, { isShiftClick: e.shiftKey });
+      }
+    }
+  };
 
   // Main Circular Checkbox Click Action
   const handleMainCheckboxClick = async (e: React.MouseEvent) => {
@@ -119,10 +158,33 @@ export const TopicRow: React.FC<TopicRowProps> = ({
   };
 
   return (
-    <div className="group flex flex-col py-3 px-2.5 rounded-lg hover:bg-[#1a1d26] border-b border-[#222634] transition-colors">
+    <div 
+      onClick={handleRowClick}
+      className={`group flex flex-col py-3 px-2.5 rounded-lg border-b transition-all border-l-2 ${
+        isSelected
+          ? 'bg-zinc-800/45 border-l-emerald-500 border-b-zinc-800 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.12)]'
+          : 'hover:bg-[#1a1d26] border-b-[#222634] border-l-transparent'
+      }`}
+    >
       {/* Primary Row */}
-      <div className="flex items-center gap-3 w-full">
-        {/* Circular Checkbox (18px) */}
+      <div className="flex items-center gap-2.5 w-full">
+        {/* Square Selection Checkbox (Linear / Things 3 style) */}
+        <button
+          type="button"
+          onClick={handleSelectCheckboxClick}
+          className={`w-4 h-4 rounded border flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+            isSelected
+              ? 'bg-emerald-500 border-emerald-500 text-black shadow-sm'
+              : isMultiSelectMode || selectedTopicIds.size > 0
+                ? 'border-zinc-600 hover:border-zinc-400 bg-zinc-900/60'
+                : 'opacity-0 group-hover:opacity-100 border-zinc-600 hover:border-zinc-400 bg-zinc-900/40'
+          }`}
+          title={isSelected ? 'Deselect topic (Shift+Click for range)' : 'Select topic (Shift+Click for range)'}
+        >
+          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+        </button>
+
+        {/* Circular Checkbox (18px) for completing next pass */}
         <button
           type="button"
           onClick={handleMainCheckboxClick}

@@ -11,7 +11,7 @@ export const ArchiveView: React.FC = () => {
     stepsByTopic 
   } = useStudyData();
 
-  const { setIsSyncModalOpen } = useAppStore();
+  const { setIsSyncModalOpen, toggleTopicSelection } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredTopics = archiveTopics.filter(t => {
@@ -25,6 +25,8 @@ export const ArchiveView: React.FC = () => {
     }
     return true;
   });
+
+  const allVisibleTopicIds = filteredTopics.map(t => t.id);
 
   return (
     <div className="w-full flex flex-col animate-in fade-in duration-150">
@@ -64,6 +66,9 @@ export const ArchiveView: React.FC = () => {
                   topic={topic}
                   subject={subject}
                   steps={topicSteps}
+                  onToggleSelect={(topicId, isShiftClick) => {
+                    toggleTopicSelection(topicId, { isShiftClick, orderedTopicIds: allVisibleTopicIds });
+                  }}
                 />
               );
             })}

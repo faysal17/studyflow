@@ -6,7 +6,7 @@ import { SubjectBadge, subjectColorMap } from '../common/SubjectBadge';
 import { CustomSelect } from '../common/CustomSelect';
 import { PageHeader } from '../common/PageHeader';
 import { bulkAddTopics } from '../../db';
-import { Search, ChevronDown, ChevronRight, Layers } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, Layers, CheckSquare, Check } from 'lucide-react';
 import type { Topic } from '../../types';
 
 export const BacklogView: React.FC = () => {
@@ -20,7 +20,13 @@ export const BacklogView: React.FC = () => {
   const { 
     backlogSearchQuery, 
     setBacklogSearchQuery,
-    showToast
+    showToast,
+    selectedTopicIds,
+    isMultiSelectMode,
+    toggleMultiSelectMode,
+    toggleTopicSelection,
+    selectTopics,
+    deselectTopics
   } = useAppStore();
 
   const [isBulkOpen, setIsBulkOpen] = useState(false);
@@ -61,6 +67,8 @@ export const BacklogView: React.FC = () => {
     );
   });
 
+  const allVisibleTopicIds = filteredTopics.map(t => t.id);
+
   // Group filtered topics by subject
   const topicsBySubject = new Map<string, Topic[]>();
   filteredTopics.forEach((t) => {
@@ -76,12 +84,28 @@ export const BacklogView: React.FC = () => {
         title="Syllabus Backlog"
         counter={`${backlogTopics.length} topics`}
         actions={
-          <button
-            onClick={() => setIsBulkOpen(!isBulkOpen)}
-            className="bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 px-3 py-1.5 rounded-md border border-zinc-700/60 transition-colors cursor-pointer"
-          >
-            {isBulkOpen ? 'Close Paste' : '+ Bulk Paste'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => toggleMultiSelectMode()}
+              className={`text-xs px-3 py-1.5 rounded-md border transition-colors cursor-pointer flex items-center gap-1.5 select-none ${
+                isMultiSelectMode || selectedTopicIds.size > 0
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700/60'
+              }`}
+              title={isMultiSelectMode ? 'Exit multi-select mode' : 'Select multiple topics for batch actions'}
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{isMultiSelectMode || selectedTopicIds.size > 0 ? 'Select Multiple' : 'Select'}</span>
+            </button>
+
+            <button
+              onClick={() => setIsBulkOpen(!isBulkOpen)}
+              className="bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 px-3 py-1.5 rounded-md border border-zinc-700/60 transition-colors cursor-pointer"
+            >
+              {isBulkOpen ? 'Close Paste' : '+ Bulk Paste'}
+            </button>
+          </div>
         }
         searchProps={{
           value: backlogSearchQuery,
@@ -91,6 +115,29 @@ export const BacklogView: React.FC = () => {
       />
 
       <div className="max-w-6xl w-full mx-auto px-8 py-6 space-y-6">
+        {/* Select All Visible Quick Bar */}
+        {(isMultiSelectMode || selectedTopicIds.size > 0) && filteredTopics.length > 0 && (
+          <div className="flex items-center justify-between text-xs py-2 px-3 bg-zinc-900/70 border border-zinc-800/80 rounded-lg text-zinc-400 animate-in fade-in">
+            <span>
+              <strong className="text-zinc-200">{selectedTopicIds.size}</strong> of {filteredTopics.length} visible topics selected
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const allSelected = allVisibleTopicIds.length > 0 && allVisibleTopicIds.every(id => selectedTopicIds.has(id));
+                if (allSelected) {
+                  deselectTopics(allVisibleTopicIds);
+                } else {
+                  selectTopics(allVisibleTopicIds);
+                }
+              }}
+              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer"
+            >
+              {allVisibleTopicIds.every(id => selectedTopicIds.has(id)) ? 'Deselect All Visible' : 'Select All Visible'}
+            </button>
+          </div>
+        )}
+
         {/* Bulk Fast-Capture if opened */}
         {isBulkOpen && (
         <form onSubmit={handleBulkSubmit} className="space-y-3 py-3 border-y border-[#222634]">
@@ -176,33 +223,71 @@ export const BacklogView: React.FC = () => {
 
             const isCollapsed = !query && !!collapsedSections[subject.id];
             const dotColor = subjectColorMap[subject.color]?.dot || 'bg-emerald-400';
+            const subjectTopicIds = subjectTopics.map(t => t.id);
+            const isAllSubjectSelected = subjectTopicIds.length > 0 && subjectTopicIds.every(id => selectedTopicIds.has(id));
+            const isSomeSubjectSelected = subjectTopicIds.some(id => selectedTopicIds.has(id));
 
             return (
               <div key={subject.id} className="space-y-1.5">
                 {/* Section Header */}
-                <button
-                  type="button"
-                  onClick={() => toggleSection(subject.id)}
-                  className="w-full flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-[#1a1d26]/60 transition-colors text-left cursor-pointer group select-none border-b border-[#222634]/70"
-                >
+                <div className="w-full flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-[#1a1d26]/60 transition-colors group select-none border-b border-[#222634]/70">
                   <div className="flex items-center gap-2.5">
-                    <span className={`w-2 h-2 rounded-full ${dotColor} flex-shrink-0`} />
-                    <span className="text-sm font-semibold text-zinc-300 group-hover:text-[#f4f4f5] transition-colors">
-                      {subject.name}
-                    </span>
-                    <span className="text-xs text-[#71717a] font-normal">
-                      {subjectTopics.length} {subjectTopics.length === 1 ? 'topic' : 'topics'}
-                    </span>
+                    {/* Section Multi-Select Checkbox */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isAllSubjectSelected) {
+                          deselectTopics(subjectTopicIds);
+                        } else {
+                          selectTopics(subjectTopicIds);
+                        }
+                      }}
+                      className={`w-4 h-4 rounded border flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+                        isAllSubjectSelected
+                          ? 'bg-emerald-500 border-emerald-500 text-black shadow-sm'
+                          : isSomeSubjectSelected
+                            ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-400'
+                            : isMultiSelectMode || selectedTopicIds.size > 0
+                              ? 'border-zinc-600 hover:border-zinc-400 bg-zinc-900/60'
+                              : 'opacity-0 group-hover:opacity-100 border-zinc-600 hover:border-zinc-400 bg-zinc-900/40'
+                      }`}
+                      title={isAllSubjectSelected ? `Deselect all in ${subject.name}` : `Select all in ${subject.name}`}
+                    >
+                      {isAllSubjectSelected ? (
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      ) : isSomeSubjectSelected ? (
+                        <span className="w-2 h-0.5 bg-emerald-400 rounded-full" />
+                      ) : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(subject.id)}
+                      className="flex items-center gap-2.5 text-left cursor-pointer"
+                    >
+                      <span className={`w-2 h-2 rounded-full ${dotColor} flex-shrink-0`} />
+                      <span className="text-sm font-semibold text-zinc-300 group-hover:text-[#f4f4f5] transition-colors">
+                        {subject.name}
+                      </span>
+                      <span className="text-xs text-[#71717a] font-normal">
+                        {subjectTopics.length} {subjectTopics.length === 1 ? 'topic' : 'topics'}
+                      </span>
+                    </button>
                   </div>
 
-                  <div className="text-[#71717a] group-hover:text-[#a1a1aa] transition-colors p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(subject.id)}
+                    className="text-[#71717a] group-hover:text-[#a1a1aa] transition-colors p-0.5 cursor-pointer"
+                  >
                     {isCollapsed ? (
                       <ChevronRight className="w-3.5 h-3.5" />
                     ) : (
                       <ChevronDown className="w-3.5 h-3.5" />
                     )}
-                  </div>
-                </button>
+                  </button>
+                </div>
 
                 {/* Topics List Under Subject Header (Without Redundant Subject Badge) */}
                 {!isCollapsed && (
@@ -216,6 +301,9 @@ export const BacklogView: React.FC = () => {
                           subject={subject}
                           steps={topicSteps}
                           showSubjectBadge={false}
+                          onToggleSelect={(topicId, isShiftClick) => {
+                            toggleTopicSelection(topicId, { isShiftClick, orderedTopicIds: allVisibleTopicIds });
+                          }}
                         />
                       );
                     })}

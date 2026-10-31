@@ -13,6 +13,7 @@ import { PerformanceView } from './components/views/PerformanceView';
 import { ArchiveView } from './components/views/ArchiveView';
 import { QuickAddModal } from './components/common/QuickAddModal';
 import { PerPassScheduleModal } from './components/common/PerPassScheduleModal';
+import { BatchActionBar } from './components/common/BatchActionBar';
 import { SyncModal } from './components/sync/SyncModal';
 
 export function App() {
@@ -120,10 +121,11 @@ export function App() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modals & Overlays */}
       <QuickAddModal />
       <PerPassScheduleModal />
       <SyncModal />
+      <BatchActionBar />
     </div>
   );
 }

@@ -59,12 +59,91 @@ interface AppState {
   setCloudSyncStatus: (status: CloudSyncStatus) => void;
   lastCloudSyncTime: number | null;
   setLastCloudSyncTime: (time: number | null) => void;
+
+  // Multi-Select & Batch Actions
+  selectedTopicIds: Set<string>;
+  isMultiSelectMode: boolean;
+  lastSelectedTopicId: string | null;
+  toggleMultiSelectMode: (enabled?: boolean) => void;
+  toggleTopicSelection: (topicId: string, options?: { isShiftClick?: boolean; orderedTopicIds?: string[] }) => void;
+  selectTopics: (topicIds: string[]) => void;
+  deselectTopics: (topicIds: string[]) => void;
+  selectAllTopics: (topicIds: string[]) => void;
+  clearSelection: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Navigation
   activeView: 'today',
-  setActiveView: (view) => set({ activeView: view }),
+  setActiveView: (view) => set({ activeView: view, selectedTopicIds: new Set<string>(), lastSelectedTopicId: null }),
+
+  // Multi-Select & Batch Actions
+  selectedTopicIds: new Set<string>(),
+  isMultiSelectMode: false,
+  lastSelectedTopicId: null,
+
+  toggleMultiSelectMode: (enabled) => {
+    const current = get().isMultiSelectMode;
+    const nextVal = enabled !== undefined ? enabled : !current;
+    if (!nextVal) {
+      set({ isMultiSelectMode: false, selectedTopicIds: new Set<string>(), lastSelectedTopicId: null });
+    } else {
+      set({ isMultiSelectMode: true });
+    }
+  },
+
+  toggleTopicSelection: (topicId, options) => {
+    const { selectedTopicIds, lastSelectedTopicId } = get();
+    const nextSet = new Set(selectedTopicIds);
+
+    if (options?.isShiftClick && lastSelectedTopicId && options?.orderedTopicIds) {
+      const fromIdx = options.orderedTopicIds.indexOf(lastSelectedTopicId);
+      const toIdx = options.orderedTopicIds.indexOf(topicId);
+
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const start = Math.min(fromIdx, toIdx);
+        const end = Math.max(fromIdx, toIdx);
+        for (let i = start; i <= end; i++) {
+          nextSet.add(options.orderedTopicIds[i]);
+        }
+        set({ selectedTopicIds: nextSet, lastSelectedTopicId: topicId, isMultiSelectMode: true });
+        return;
+      }
+    }
+
+    if (nextSet.has(topicId)) {
+      nextSet.delete(topicId);
+    } else {
+      nextSet.add(topicId);
+    }
+
+    set({ 
+      selectedTopicIds: nextSet, 
+      lastSelectedTopicId: topicId,
+      isMultiSelectMode: nextSet.size > 0 ? get().isMultiSelectMode : get().isMultiSelectMode
+    });
+  },
+
+  selectTopics: (topicIds) => {
+    const nextSet = new Set(get().selectedTopicIds);
+    topicIds.forEach(id => nextSet.add(id));
+    set({ selectedTopicIds: nextSet, isMultiSelectMode: true });
+  },
+
+  deselectTopics: (topicIds) => {
+    const nextSet = new Set(get().selectedTopicIds);
+    topicIds.forEach(id => nextSet.delete(id));
+    set({ selectedTopicIds: nextSet });
+  },
+
+  selectAllTopics: (topicIds) => {
+    const nextSet = new Set(topicIds);
+    set({ selectedTopicIds: nextSet, isMultiSelectMode: true });
+  },
+
+  clearSelection: () => {
+    set({ selectedTopicIds: new Set<string>(), lastSelectedTopicId: null });
+  },
 
   // Cloud Sync
   cloudSyncStatus: 'idle',
