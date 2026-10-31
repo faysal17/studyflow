@@ -39,7 +39,7 @@ export const PipelineStepsBar: React.FC<PipelineStepsBarProps> = ({
       await toggleStepCompletion(step.id);
 
       if (willBeCompleted) {
-        if (step.stepNumber === 5) {
+        if (step.stepNumber === sortedSteps.length) {
           if (soundEnabled) playTopicCompletedFanfare();
           confetti({
             particleCount: 50,
@@ -60,9 +60,9 @@ export const PipelineStepsBar: React.FC<PipelineStepsBarProps> = ({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-1.5" title={`${completedCount}/5 steps completed`}>
+      <div className="flex items-center gap-1.5" title={`${completedCount}/${sortedSteps.length || 5} steps completed`}>
         {sortedSteps.map(step => {
-          const stepTitle = STANDARD_STEP_TITLES[step.stepNumber] || step.title;
+          const stepTitle = step.title;
           return (
             <button
               key={step.id}
@@ -79,7 +79,7 @@ export const PipelineStepsBar: React.FC<PipelineStepsBarProps> = ({
           );
         })}
         <span className="text-xs text-zinc-400 font-mono ml-1.5">
-          {completedCount}/5
+          {completedCount}/{sortedSteps.length || 5}
         </span>
       </div>
     );
@@ -89,7 +89,7 @@ export const PipelineStepsBar: React.FC<PipelineStepsBarProps> = ({
     <div className="space-y-1.5 py-1">
       {sortedSteps.map((step) => {
         const isDone = step.isCompleted;
-        const stepTitle = STANDARD_STEP_TITLES[step.stepNumber] || step.title;
+        const stepTitle = step.title;
         return (
           <div
             key={step.id}

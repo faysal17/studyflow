@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useStudyData } from '../../hooks/useStudyData';
 import { bulkAddTopics, addSingleTopic, db } from '../../db';
-import { createPipelineStepsForTopic } from '../../db/seedData';
+import { getDefaultDrillTypeForSubject, createPipelineStepsForDrill } from '../../utils/drillUtils';
 import { getTodayDateString, getTomorrowDateString } from '../../utils/dateUtils';
-import type { Topic } from '../../types';
+import type { Topic, DrillType } from '../../types';
 import { CustomSelect } from './CustomSelect';
 import { subjectColorMap } from './SubjectBadge';
 import { X, Sun, Sunrise, Layers } from 'lucide-react';
@@ -15,10 +15,16 @@ export const QuickAddModal: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
   const [selectedLabelId, setSelectedLabelId] = useState<string>(subjects[0]?.id || 'sub-bangla-lit');
+  const [drillType, setDrillType] = useState<DrillType>(getDefaultDrillTypeForSubject(subjects[0]?.id || 'sub-bangla-lit'));
   const [singleTitle, setSingleTitle] = useState('');
   const [scheduleTarget, setScheduleTarget] = useState<'today' | 'tomorrow' | 'backlog'>('today');
   const [bulkText, setBulkText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubjectChange = (newSubjectId: string) => {
+    setSelectedLabelId(newSubjectId);
+    setDrillType(getDefaultDrillTypeForSubject(newSubjectId));
+  };
 
   if (!isQuickAddOpen) return null;
 
@@ -38,6 +44,7 @@ export const QuickAddModal: React.FC = () => {
         id: topicId,
         title: singleTitle.trim(),
         labelId: selectedLabelId,
+        drillType,
         pass1Date: scheduledDate,
         pass1Completed: false,
         pass2Date: null,
@@ -52,7 +59,7 @@ export const QuickAddModal: React.FC = () => {
         order: now
       };
 
-      const steps = createPipelineStepsForTopic(topicId, 0);
+      const steps = createPipelineStepsForDrill(topicId, drillType, 0);
 
       await addSingleTopic(newTopic, steps);
 
@@ -77,7 +84,7 @@ export const QuickAddModal: React.FC = () => {
         ? getTodayDateString() 
         : (scheduleTarget === 'tomorrow' ? getTomorrowDateString() : null);
 
-      const count = await bulkAddTopics(lines, selectedLabelId, scheduledDate);
+      const count = await bulkAddTopics(lines, selectedLabelId, scheduledDate, drillType);
       showToast(`Added ${count} topics to ${scheduleTarget === 'backlog' ? 'backlog' : scheduleTarget}`);
       setBulkText('');
       setIsQuickAddOpen(false);
@@ -119,7 +126,7 @@ export const QuickAddModal: React.FC = () => {
           <label className="text-[11px] font-mono text-[#a1a1aa]">Subject</label>
           <CustomSelect
             value={selectedLabelId}
-            onChange={setSelectedLabelId}
+            onChange={handleSubjectChange}
             options={subjects.map(sub => ({
               value: sub.id,
               label: sub.name,
@@ -127,6 +134,40 @@ export const QuickAddModal: React.FC = () => {
             }))}
             className="w-full"
           />
+        </div>
+
+        {/* Drill Mode Segmented Pill Switch */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] font-mono text-[#a1a1aa]">Drill Mode</label>
+            <span className="text-[10px] text-zinc-500 font-mono">
+              {drillType === '5-step' ? '5-Step (Anki + Benchmark)' : '3-Step (Direct Benchmark)'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 p-0.5 bg-[#0a0b0e] border border-[#222634] rounded-lg">
+            <button
+              type="button"
+              onClick={() => setDrillType('5-step')}
+              className={`py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                drillType === '5-step'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
+                  : 'text-[#71717a] hover:text-[#a1a1aa]'
+              }`}
+            >
+              5-Step (Anki)
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrillType('3-step')}
+              className={`py-1.5 px-3 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                drillType === '3-step'
+                  ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
+                  : 'text-[#71717a] hover:text-[#a1a1aa]'
+              }`}
+            >
+              3-Step (Direct)
+            </button>
+          </div>
         </div>
 
         {/* Schedule Target */}

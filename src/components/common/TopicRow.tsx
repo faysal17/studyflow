@@ -9,7 +9,8 @@ import {
   deleteTopicWithUndo,
   restoreDeletedTopic,
   addTopicToSprint,
-  removeTopicFromSprint
+  removeTopicFromSprint,
+  switchTopicDrillType
 } from '../../db';
 import { useAppStore } from '../../store/useAppStore';
 import { formatScheduleDate, getTodayDateString } from '../../utils/dateUtils';
@@ -118,9 +119,17 @@ export const TopicRow: React.FC<TopicRowProps> = ({
     e.stopPropagation();
     const newCompleted = await toggleStepCompletion(step.id);
     if (newCompleted && soundEnabled) playCompletionSound();
-    if (step.stepNumber === 5 && newCompleted) {
-      showToast(`Pass 2 Finished! Step 5 completed for "${topic.title}"`);
+    if (step.stepNumber === sortedSteps.length && newCompleted) {
+      showToast(`Pass 2 Finished! Step ${step.stepNumber} completed for "${topic.title}"`);
     }
+  };
+
+  // Switch Pass 2 drill mode between 3-step and 5-step dynamically
+  const handleToggleDrillType = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const targetType = sortedSteps.length === 5 ? '3-step' : '5-step';
+    await switchTopicDrillType(topic.id, targetType);
+    showToast(`Switched "${topic.title}" to ${targetType} drill`);
   };
 
   // Delete topic instantly with Undo toast notification (No blocking dialogs)
@@ -262,7 +271,7 @@ export const TopicRow: React.FC<TopicRowProps> = ({
             }`}
             title="Pass 2: Deep Drill"
           >
-            P2{topic.pass2Completed ? ' ✓' : topic.pass2Date ? `: ${formatScheduleDate(topic.pass2Date)} (${completedStepCount}/5)` : ''}
+            P2{topic.pass2Completed ? ' ✓' : topic.pass2Date ? `: ${formatScheduleDate(topic.pass2Date)} (${completedStepCount}/${sortedSteps.length || 5})` : ''}
           </button>
 
           {/* Pass 3 Status Badge */}
@@ -320,8 +329,18 @@ export const TopicRow: React.FC<TopicRowProps> = ({
       {/* Sub-steps if expanded */}
       {isExpanded && (
         <div className="ml-7 mt-2.5 pl-3.5 border-l border-[#222634] flex flex-col gap-1.5 pt-0.5 animate-in fade-in duration-150">
-          <div className="text-[10px] font-semibold text-[#71717a] uppercase tracking-wider mb-0.5">
-            Pass 2: 5-Step Deep Drill
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-semibold text-[#71717a] uppercase tracking-wider">
+              Pass 2: {sortedSteps.length}-Step Drill
+            </span>
+            <button
+              type="button"
+              onClick={handleToggleDrillType}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 bg-zinc-800/40 hover:bg-zinc-800/70 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+              title={`Switch to ${sortedSteps.length === 5 ? '3-step' : '5-step'} drill`}
+            >
+              {sortedSteps.length} steps ▾
+            </button>
           </div>
           {sortedSteps.map((step) => {
             const todayStr = getTodayDateString();

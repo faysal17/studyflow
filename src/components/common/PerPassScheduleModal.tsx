@@ -7,7 +7,8 @@ import {
   togglePass1Completion,
   togglePass2Completion,
   togglePass3Completion,
-  toggleStepCompletion 
+  toggleStepCompletion,
+  switchTopicDrillType
 } from '../../db';
 import { useAppStore } from '../../store/useAppStore';
 import { 
@@ -126,6 +127,14 @@ export const PerPassScheduleModal: React.FC = () => {
   const handleToggleStep = async (stepId: string) => {
     const isCompleted = await toggleStepCompletion(stepId);
     if (isCompleted && soundEnabled) playCompletionSound();
+  };
+
+  const handleToggleDrillType = async () => {
+    if (!topic) return;
+    const currentCount = steps ? steps.length : 5;
+    const targetType = currentCount === 5 ? '3-step' : '5-step';
+    await switchTopicDrillType(topic.id, targetType);
+    showToast(`Switched "${topic.title}" to ${targetType} drill`);
   };
 
   const getDateBadgeStyle = (dateStr: string | null) => {
@@ -362,8 +371,16 @@ export const PerPassScheduleModal: React.FC = () => {
                 </button>
 
                 <span className={`text-sm font-medium ${topic.pass2Completed ? 'text-[#71717a] line-through' : 'text-[#f4f4f5]'}`}>
-                  Pass 2: Deep Drill
+                  Pass 2: {steps ? steps.length : 5}-Step Drill
                 </span>
+                <button
+                  type="button"
+                  onClick={handleToggleDrillType}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 bg-zinc-800/40 hover:bg-zinc-800/70 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                  title={`Switch to ${steps?.length === 5 ? '3-step' : '5-step'} drill`}
+                >
+                  {steps ? steps.length : 5} steps ▾
+                </button>
               </div>
 
               {/* Main Pass 2 Date Pill */}

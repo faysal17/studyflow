@@ -6,6 +6,8 @@ export type TopicStatus = 'backlog' | 'in_sprint' | 'completed';
 
 export type SyllabusPass = 1 | 2 | 3;
 
+export type DrillType = '5-step' | '3-step';
+
 export interface SubjectLabel {
   id: string;
   name: string;
@@ -29,6 +31,7 @@ export interface Topic {
   id: string;
   title: string;
   labelId: string;              // references SubjectLabel.id
+  drillType?: DrillType;        // '5-step' (Anki) | '3-step' (Direct)
   pass1Date: string | null;     // YYYY-MM-DD
   pass1Completed: boolean;
   pass1CompletedAt?: number | null;

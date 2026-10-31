@@ -1,4 +1,5 @@
-import type { SubjectLabel, Topic, PipelineStep, VocabItem, MissedQuestion } from '../types';
+import type { SubjectLabel, Topic, PipelineStep, VocabItem, MissedQuestion, DrillType } from '../types';
+import { createPipelineStepsForDrill } from '../utils/drillUtils';
 
 export const DEFAULT_SUBJECTS: SubjectLabel[] = [
   // Memorize (Sun–Thu)
@@ -82,32 +83,12 @@ export const DEFAULT_SUBJECTS: SubjectLabel[] = [
   }
 ];
 
-export function createPipelineStepsForTopic(topicId: string, initialProgress = 0): PipelineStep[] {
-  const stepsDef: Array<{
-    stepNumber: 1 | 2 | 3 | 4 | 5;
-    title: string;
-    contextTag: '@desk' | '@office' | '@commute';
-  }> = [
-    { stepNumber: 1, title: 'Study the book', contextTag: '@desk' },
-    { stepNumber: 2, title: 'Solve book questions', contextTag: '@desk' },
-    { stepNumber: 3, title: 'Create Anki questions from topic', contextTag: '@office' },
-    { stepNumber: 4, title: 'Practice Anki questions', contextTag: '@commute' },
-    { stepNumber: 5, title: 'Benchmark on LiveMCQ', contextTag: '@office' }
-  ];
-
-  const now = Date.now();
-  return stepsDef.map((def) => {
-    const isCompleted = def.stepNumber <= initialProgress;
-    return {
-      id: `${topicId}-step-${def.stepNumber}`,
-      topicId,
-      stepNumber: def.stepNumber,
-      title: def.title,
-      contextTag: def.contextTag,
-      isCompleted,
-      completedAt: isCompleted ? now - (5 - def.stepNumber) * 3600000 : null
-    };
-  });
+export function createPipelineStepsForTopic(
+  topicId: string, 
+  initialProgress = 0,
+  drillType: DrillType = '5-step'
+): PipelineStep[] {
+  return createPipelineStepsForDrill(topicId, drillType, initialProgress);
 }
 
 export function generateSeedData(): {

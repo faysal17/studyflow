@@ -1,8 +1,9 @@
 import Dexie, { type Table } from 'dexie';
-import type { SubjectLabel, Topic, PipelineStep, MissedQuestion, VocabItem, SprintHistory, AppSetting } from '../types';
+import type { SubjectLabel, Topic, PipelineStep, MissedQuestion, VocabItem, SprintHistory, AppSetting, DrillType } from '../types';
 import { generateSeedData, createPipelineStepsForTopic } from './seedData';
 import { getCurrentSprintWeekId, getNextSprintWeekId } from '../utils/dateUtils';
 import { getCurrentSprintRange } from '../utils/sprintUtils';
+import { getDefaultDrillTypeForSubject, createPipelineStepsForDrill } from '../utils/drillUtils';
 
 export class StudyFlowDatabase extends Dexie {
   subjects!: Table<SubjectLabel, string>;
@@ -117,7 +118,7 @@ export async function initializeDatabase(): Promise<void> {
       });
     }
 
-    // Migration helper: ensure all existing topics have pass1Date, pass2Date, pass3Date
+    // Migration helper: ensure all existing topics have pass1Date, pass2Date, pass3Date and drillType
     const allTopics = await db.topics.toArray();
     for (const topic of allTopics) {
       const updates: Partial<Topic> = {};
@@ -127,8 +128,23 @@ export async function initializeDatabase(): Promise<void> {
       if (topic.pass1Date === undefined) updates.pass1Date = topic.scheduledDate || null;
       if (topic.pass2Date === undefined) updates.pass2Date = null;
       if (topic.pass3Date === undefined) updates.pass3Date = null;
+      
+      const defaultDrill = getDefaultDrillTypeForSubject(topic.labelId);
+      if (!topic.drillType) {
+        updates.drillType = defaultDrill;
+      }
+
       if (Object.keys(updates).length > 0) {
         await db.topics.update(topic.id, updates);
+      }
+
+      // If topic belongs to a 3-step subject but currently has 5 steps, backfill to 3-step
+      const effectiveDrill = topic.drillType || defaultDrill;
+      if (effectiveDrill === '3-step') {
+        const topicSteps = await db.steps.where('topicId').equals(topic.id).sortBy('stepNumber');
+        if (topicSteps.length === 5) {
+          await switchTopicDrillType(topic.id, '3-step');
+        }
       }
     }
   }
@@ -313,16 +329,146 @@ export async function toggleStepCompletion(stepId: string): Promise<boolean> {
 }
 
 /**
+ * Dynamically switch a topic's Pass 2 drill mode between 3-step and 5-step
+ */
+export async function switchTopicDrillType(topicId: string, newDrillType?: DrillType): Promise<void> {
+  await db.transaction('rw', [db.topics, db.steps], async () => {
+    const topic = await db.topics.get(topicId);
+    if (!topic) return;
+
+    const currentSteps = await db.steps.where('topicId').equals(topicId).sortBy('stepNumber');
+    const currentDrillType: DrillType = topic.drillType || (currentSteps.length === 3 ? '3-step' : '5-step');
+    const targetDrillType: DrillType = newDrillType || (currentDrillType === '5-step' ? '3-step' : '5-step');
+
+    if (currentDrillType === targetDrillType && currentSteps.length === (targetDrillType === '3-step' ? 3 : 5)) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (targetDrillType === '3-step') {
+      // Transitioning to 3-step:
+      // Keep Step 1 ('Study the book') and Step 2 ('Solve book questions').
+      // Retain Benchmark step and renumber it to step 3.
+      // Remove Anki steps (steps 3 & 4 in 5-step).
+      const step1 = currentSteps.find(s => s.stepNumber === 1);
+      const step2 = currentSteps.find(s => s.stepNumber === 2);
+      const benchmarkStep = currentSteps.find(s => s.title.toLowerCase().includes('benchmark') || s.stepNumber === 5 || s.stepNumber === 3);
+
+      const toDelete = currentSteps.filter(s => 
+        s.id !== step1?.id && 
+        s.id !== step2?.id && 
+        s.id !== benchmarkStep?.id
+      );
+
+      for (const del of toDelete) {
+        await db.steps.delete(del.id);
+      }
+
+      if (benchmarkStep) {
+        if (benchmarkStep.stepNumber !== 3) {
+          await db.steps.update(benchmarkStep.id, {
+            stepNumber: 3,
+            title: 'Benchmark on LiveMCQ',
+            contextTag: '@office'
+          });
+        }
+      } else {
+        await db.steps.add({
+          id: `${topicId}-step-3`,
+          topicId,
+          stepNumber: 3,
+          title: 'Benchmark on LiveMCQ',
+          contextTag: '@office',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+    } else {
+      // Transitioning to 5-step:
+      // Current steps might have 3 steps: 1, 2, 3 (Benchmark)
+      // Step 3 (Benchmark) becomes Step 5
+      const benchmarkStep = currentSteps.find(s => s.title.toLowerCase().includes('benchmark') || s.stepNumber === 3);
+      if (benchmarkStep) {
+        await db.steps.update(benchmarkStep.id, {
+          stepNumber: 5,
+          title: 'Benchmark on LiveMCQ',
+          contextTag: '@office'
+        });
+      } else {
+        await db.steps.add({
+          id: `${topicId}-step-5`,
+          topicId,
+          stepNumber: 5,
+          title: 'Benchmark on LiveMCQ',
+          contextTag: '@office',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Add Step 3 (Create Anki)
+      const existingStep3 = currentSteps.find(s => s.stepNumber === 3 && s.title.toLowerCase().includes('anki'));
+      if (!existingStep3) {
+        await db.steps.add({
+          id: `${topicId}-step-3`,
+          topicId,
+          stepNumber: 3,
+          title: 'Create Anki questions from topic',
+          contextTag: '@office',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Add Step 4 (Practice Anki)
+      const existingStep4 = currentSteps.find(s => s.stepNumber === 4 && s.title.toLowerCase().includes('anki'));
+      if (!existingStep4) {
+        await db.steps.add({
+          id: `${topicId}-step-4`,
+          topicId,
+          stepNumber: 4,
+          title: 'Practice Anki questions',
+          contextTag: '@commute',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+    }
+
+    // Recalculate pass 2 completion
+    const updatedSteps = await db.steps.where('topicId').equals(topicId).toArray();
+    const allCompleted = updatedSteps.length > 0 && updatedSteps.every(s => s.isCompleted);
+    const isAllDone = topic.pass1Completed && allCompleted && topic.pass3Completed;
+
+    await db.topics.update(topicId, {
+      drillType: targetDrillType,
+      pass2Completed: allCompleted,
+      pass2CompletedAt: allCompleted ? (topic.pass2CompletedAt || now) : null,
+      currentPass: allCompleted ? 3 : (topic.pass1Completed ? 2 : 1),
+      status: isAllDone ? 'completed' : (topic.inSprint ? 'in_sprint' : topic.status)
+    });
+  });
+  notifyDatabaseChange();
+}
+
+/**
  * Bulk add topics to backlog or scheduled date
  */
 export async function bulkAddTopics(
   titles: string[], 
   subjectLabelId: string,
-  initialPass1Date: string | null = null
+  initialPass1Date: string | null = null,
+  drillType?: DrillType
 ): Promise<number> {
   const now = Date.now();
   const topicsToAdd: Topic[] = [];
   const stepsToAdd: PipelineStep[] = [];
+  const resolvedDrillType = drillType || getDefaultDrillTypeForSubject(subjectLabelId);
 
   for (let i = 0; i < titles.length; i++) {
     const title = titles[i].trim();
@@ -333,6 +479,7 @@ export async function bulkAddTopics(
       id: topicId,
       title,
       labelId: subjectLabelId,
+      drillType: resolvedDrillType,
       pass1Date: initialPass1Date,
       pass1Completed: false,
       pass2Date: null,
@@ -344,7 +491,7 @@ export async function bulkAddTopics(
       order: now + i
     });
 
-    const steps = createPipelineStepsForTopic(topicId, 0);
+    const steps = createPipelineStepsForDrill(topicId, resolvedDrillType, 0);
     stepsToAdd.push(...steps);
   }
 

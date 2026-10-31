@@ -39,10 +39,10 @@ export const MatrixView: React.FC = () => {
   });
 
   // Calculate pass stage for a topic
-  const getTopicStage = (topic: Topic, completedSteps: number) => {
+  const getTopicStage = (topic: Topic, completedSteps: number, totalSteps = 5) => {
     if (topic.pass3Completed) return { label: 'Mastered', stage: 3, color: 'emerald' };
     if (topic.pass2Completed) return { label: 'P3 Ready', stage: 2.5, color: 'purple' };
-    if (completedSteps > 0 || topic.pass2Date) return { label: `P2 (${completedSteps}/5)`, stage: 2, color: 'amber' };
+    if (completedSteps > 0 || topic.pass2Date) return { label: `P2 (${completedSteps}/${totalSteps})`, stage: 2, color: 'amber' };
     if (topic.pass1Completed) return { label: 'P1 Done', stage: 1.5, color: 'blue' };
     if (topic.pass1Date) return { label: 'P1 Sched', stage: 1, color: 'sky' };
     return { label: 'Unstarted', stage: 0, color: 'zinc' };
@@ -191,7 +191,7 @@ export const MatrixView: React.FC = () => {
                       {!isCollapsed && subjectTopics.map((topic, idx) => {
                         const topicSteps = stepsByTopic.get(topic.id) || [];
                         const completedSteps = topicSteps.filter(s => s.isCompleted).length;
-                        const overall = getTopicStage(topic, completedSteps);
+                        const overall = getTopicStage(topic, completedSteps, topicSteps.length || 5);
                         const isAlt = idx % 2 === 1;
 
                         return (
@@ -231,7 +231,7 @@ export const MatrixView: React.FC = () => {
                                 </span>
                               ) : completedSteps > 0 ? (
                                 <span className="bg-amber-500/15 text-amber-400 border border-amber-500/30 font-mono text-xs px-2 py-0.5 rounded inline-flex items-center gap-1 shadow-sm cursor-default select-none">
-                                  <span>{completedSteps}/5 steps</span>
+                                  <span>{completedSteps}/{topicSteps.length || 5} steps</span>
                                 </span>
                               ) : topic.pass2Date ? (
                                 <span className="bg-sky-500/15 text-sky-400 border border-sky-500/30 text-xs px-2 py-0.5 rounded inline-flex items-center gap-1 shadow-sm font-medium cursor-default select-none">
@@ -354,7 +354,7 @@ export const MatrixView: React.FC = () => {
                     {subjectTopics.map((topic) => {
                       const topicSteps = stepsByTopic.get(topic.id) || [];
                       const completedSteps = topicSteps.filter(s => s.isCompleted).length;
-                      const overall = getTopicStage(topic, completedSteps);
+                      const overall = getTopicStage(topic, completedSteps, topicSteps.length || 5);
 
                       // Determine chip appearance
                       let chipColor = 'bg-[#1a1d26] border-[#222634] hover:border-zinc-500';
