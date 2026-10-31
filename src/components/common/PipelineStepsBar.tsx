@@ -2,7 +2,7 @@ import React from 'react';
 import type { PipelineStep } from '../../types';
 import { toggleStepCompletion } from '../../db';
 import { useAppStore } from '../../store/useAppStore';
-import { playStepCompleteSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
+import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
 import confetti from 'canvas-confetti';
 import { Check } from 'lucide-react';
 
@@ -48,7 +48,7 @@ export const PipelineStepsBar: React.FC<PipelineStepsBarProps> = ({
           });
           showToast(`Pass 2 completed: "${topicTitle || 'Topic'}". Ready for Pass 3: Final Review & Polish.`);
         } else {
-          if (soundEnabled) playStepCompleteSound();
+          if (soundEnabled) playCompletionSound();
         }
       }
 

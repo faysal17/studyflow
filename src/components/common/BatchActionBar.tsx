@@ -10,7 +10,7 @@ import {
   getTomorrowDateString, 
   formatScheduleDate 
 } from '../../utils/dateUtils';
-import { playStepCompleteSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
+import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
 import confetti from 'canvas-confetti';
 import { 
   Calendar, 
@@ -81,7 +81,7 @@ export const BatchActionBar: React.FC = () => {
     setIsSubmitting(true);
     try {
       const count = await batchAddTopicsToSprint(topicIds);
-      if (soundEnabled) playStepCompleteSound();
+      if (soundEnabled) playCompletionSound();
       showToast(`Added ${count} topics to This Week (Active Sprint)`);
       clearSelection();
     } catch (err) {
@@ -98,7 +98,7 @@ export const BatchActionBar: React.FC = () => {
     setIsSubmitting(true);
     try {
       const count = await batchSetTopicPassDate(topicIds, selectedPass, date);
-      if (soundEnabled) playStepCompleteSound();
+      if (soundEnabled) playCompletionSound();
       const passLabel = selectedPass === 'active' ? 'Active Pass' : `Pass ${selectedPass}`;
       showToast(`Scheduled ${passLabel} for ${count} topics (${date ? formatScheduleDate(date) : 'Backlog'})`);
       clearSelection();
@@ -122,7 +122,7 @@ export const BatchActionBar: React.FC = () => {
         confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
         showToast(`🎉 Mastered all passes for ${count} topics!`);
       } else {
-        if (soundEnabled) playStepCompleteSound();
+        if (soundEnabled) playCompletionSound();
         showToast(`Marked Pass ${targetPass} complete for ${count} topics`);
       }
       clearSelection();

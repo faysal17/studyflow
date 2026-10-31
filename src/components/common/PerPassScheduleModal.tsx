@@ -17,7 +17,7 @@ import {
   formatScheduleDate, 
   getScheduleStatus 
 } from '../../utils/dateUtils';
-import { playStepCompleteSound } from '../../utils/soundUtils';
+import { playCompletionSound } from '../../utils/soundUtils';
 import { SubjectBadge } from './SubjectBadge';
 import { 
   X, 
@@ -92,7 +92,7 @@ export const PerPassScheduleModal: React.FC = () => {
 
   const handleSetPassDate = async (pass: 1 | 2 | 3, date: string | null) => {
     await setTopicPassDate(topic.id, pass, date);
-    if (soundEnabled && date) playStepCompleteSound();
+    if (soundEnabled && date) playCompletionSound();
     
     const passName = pass === 1 ? 'Pass 1: Skim' : pass === 2 ? 'Pass 2: Deep Drill' : 'Pass 3: Review';
     if (date) {
@@ -105,7 +105,7 @@ export const PerPassScheduleModal: React.FC = () => {
 
   const handleSetStepDate = async (stepId: string, stepTitle: string, date: string | null) => {
     await setStepScheduleDate(stepId, date);
-    if (soundEnabled && date) playStepCompleteSound();
+    if (soundEnabled && date) playCompletionSound();
 
     if (date) {
       showToast(`Scheduled "${stepTitle}" for ${formatScheduleDate(date)}`);
@@ -120,12 +120,12 @@ export const PerPassScheduleModal: React.FC = () => {
     if (pass === 1) completed = await togglePass1Completion(topic.id);
     else if (pass === 2) completed = await togglePass2Completion(topic.id);
     else if (pass === 3) completed = await togglePass3Completion(topic.id);
-    if (completed && soundEnabled) playStepCompleteSound();
+    if (completed && soundEnabled) playCompletionSound();
   };
 
   const handleToggleStep = async (stepId: string) => {
     const isCompleted = await toggleStepCompletion(stepId);
-    if (isCompleted && soundEnabled) playStepCompleteSound();
+    if (isCompleted && soundEnabled) playCompletionSound();
   };
 
   const getDateBadgeStyle = (dateStr: string | null) => {

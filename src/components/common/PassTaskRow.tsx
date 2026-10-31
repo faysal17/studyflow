@@ -11,7 +11,7 @@ import {
 } from '../../db';
 import { useAppStore } from '../../store/useAppStore';
 import { formatScheduleDate, getTodayDateString } from '../../utils/dateUtils';
-import { playStepCompleteSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
+import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
 import confetti from 'canvas-confetti';
 import { Check, Trash2, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
 
@@ -38,11 +38,11 @@ export const PassTaskRow: React.FC<PassTaskRowProps> = ({
 
     if (task.passNumber === 1) {
       const isDone = await togglePass1Completion(task.topic.id);
-      if (isDone && soundEnabled) playStepCompleteSound();
+      if (isDone && soundEnabled) playCompletionSound();
       showToast(isDone ? `Pass 1 completed for "${task.topic.title}"` : `Reopened Pass 1`);
     } else if (task.passNumber === 2) {
       const isDone = await togglePass2Completion(task.topic.id);
-      if (isDone && soundEnabled) playStepCompleteSound();
+      if (isDone && soundEnabled) playCompletionSound();
       showToast(isDone ? `Pass 2 completed for "${task.topic.title}"` : `Reopened Pass 2`);
     } else if (task.passNumber === 3) {
       const isDone = await togglePass3Completion(task.topic.id);
@@ -56,7 +56,7 @@ export const PassTaskRow: React.FC<PassTaskRowProps> = ({
           });
           showToast(`🎉 100% Mastered: "${task.topic.title}"!`);
         } else {
-          if (soundEnabled) playStepCompleteSound();
+          if (soundEnabled) playCompletionSound();
           showToast(`Pass 3 completed for "${task.topic.title}"`);
         }
       } else {
@@ -69,7 +69,7 @@ export const PassTaskRow: React.FC<PassTaskRowProps> = ({
   const handleStepClick = async (e: React.MouseEvent, step: PipelineStep) => {
     e.stopPropagation();
     const newCompleted = await toggleStepCompletion(step.id);
-    if (newCompleted && soundEnabled) playStepCompleteSound();
+    if (newCompleted && soundEnabled) playCompletionSound();
 
     if (step.stepNumber === 5 && newCompleted) {
       showToast(`Pass 2 Finished! Step 5 completed for "${task.topic.title}"`);

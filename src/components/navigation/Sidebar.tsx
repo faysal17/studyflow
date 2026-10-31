@@ -19,7 +19,7 @@ import {
   X,
   RefreshCw
 } from 'lucide-react';
-import { playStepCompleteSound } from '../../utils/soundUtils';
+import { playCompletionSound } from '../../utils/soundUtils';
 
 export const Sidebar: React.FC = () => {
   const { 
@@ -338,7 +338,7 @@ export const Sidebar: React.FC = () => {
               const nextState = !soundEnabled;
               setSoundEnabled(nextState);
               if (nextState) {
-                playStepCompleteSound();
+                playCompletionSound();
               }
             }}
             className={`p-2 rounded-lg text-xs border transition-colors cursor-pointer ${

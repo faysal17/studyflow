@@ -13,7 +13,7 @@ import {
 } from '../../db';
 import { useAppStore } from '../../store/useAppStore';
 import { formatScheduleDate, getTodayDateString } from '../../utils/dateUtils';
-import { playStepCompleteSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
+import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
 import confetti from 'canvas-confetti';
 import { Check, Trash2, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -82,14 +82,14 @@ export const TopicRow: React.FC<TopicRowProps> = ({
 
     if (!topic.pass1Completed) {
       const done = await togglePass1Completion(topic.id);
-      if (done && soundEnabled) playStepCompleteSound();
+      if (done && soundEnabled) playCompletionSound();
       showToast(`Pass 1 completed for "${topic.title}"`);
       return;
     }
 
     if (!topic.pass2Completed) {
       const done = await togglePass2Completion(topic.id);
-      if (done && soundEnabled) playStepCompleteSound();
+      if (done && soundEnabled) playCompletionSound();
       showToast(`Pass 2 completed for "${topic.title}"`);
       return;
     }
@@ -117,7 +117,7 @@ export const TopicRow: React.FC<TopicRowProps> = ({
   const handleToggleStep = async (e: React.MouseEvent, step: PipelineStep) => {
     e.stopPropagation();
     const newCompleted = await toggleStepCompletion(step.id);
-    if (newCompleted && soundEnabled) playStepCompleteSound();
+    if (newCompleted && soundEnabled) playCompletionSound();
     if (step.stepNumber === 5 && newCompleted) {
       showToast(`Pass 2 Finished! Step 5 completed for "${topic.title}"`);
     }
@@ -149,7 +149,7 @@ export const TopicRow: React.FC<TopicRowProps> = ({
         showToast(`Removed "${topic.title}" from This Week`);
       } else {
         await addTopicToSprint(topic.id);
-        if (soundEnabled) playStepCompleteSound();
+        if (soundEnabled) playCompletionSound();
         showToast(`Added "${topic.title}" to This Week`);
       }
     } catch (err) {

@@ -13,7 +13,7 @@ import {
   addTopicToSprint,
   completeAndCloseSprint 
 } from '../../db';
-import { playStepCompleteSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
+import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soundUtils';
 import confetti from 'canvas-confetti';
 import { 
   Check, 
@@ -94,14 +94,14 @@ const SprintTopicRow: React.FC<SprintRowProps> = ({
 
     if (!topic.pass1Completed) {
       const done = await togglePass1Completion(topic.id);
-      if (done && soundEnabled) playStepCompleteSound();
+      if (done && soundEnabled) playCompletionSound();
       showToast(`Pass 1 completed for "${topic.title}"`);
       return;
     }
 
     if (!topic.pass2Completed) {
       const done = await togglePass2Completion(topic.id);
-      if (done && soundEnabled) playStepCompleteSound();
+      if (done && soundEnabled) playCompletionSound();
       showToast(`Pass 2 completed for "${topic.title}"`);
       return;
     }
@@ -124,7 +124,7 @@ const SprintTopicRow: React.FC<SprintRowProps> = ({
   const handleToggleStep = async (e: React.MouseEvent, step: PipelineStep) => {
     e.stopPropagation();
     const newCompleted = await toggleStepCompletion(step.id);
-    if (newCompleted && soundEnabled) playStepCompleteSound();
+    if (newCompleted && soundEnabled) playCompletionSound();
     if (step.stepNumber === 5 && newCompleted) {
       showToast(`Pass 2 Finished! Step 5 completed for "${topic.title}"`);
     }
