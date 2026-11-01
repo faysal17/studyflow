@@ -138,12 +138,23 @@ export async function initializeDatabase(): Promise<void> {
         await db.topics.update(topic.id, updates);
       }
 
-      // If topic belongs to a 3-step subject but currently has 5 steps, backfill to 3-step
+      // Ensure all 3-step topics have strictly the 3 non-Anki steps:
+      // 1. Study the book
+      // 2. Solve book questions
+      // 3. Benchmark on LiveMCQ
       const effectiveDrill = topic.drillType || defaultDrill;
+      const topicSteps = await db.steps.where('topicId').equals(topic.id).sortBy('stepNumber');
+      
       if (effectiveDrill === '3-step') {
-        const topicSteps = await db.steps.where('topicId').equals(topic.id).sortBy('stepNumber');
-        if (topicSteps.length === 5) {
+        const hasAnki = topicSteps.some(s => s.title.toLowerCase().includes('anki') || s.id.toLowerCase().includes('anki'));
+        const hasBenchmarkAsStep3 = topicSteps.some(s => s.stepNumber === 3 && s.title.toLowerCase().includes('benchmark'));
+        
+        if (topicSteps.length !== 3 || hasAnki || !hasBenchmarkAsStep3) {
           await switchTopicDrillType(topic.id, '3-step');
+        }
+      } else if (effectiveDrill === '5-step') {
+        if (topicSteps.length !== 5) {
+          await switchTopicDrillType(topic.id, '5-step');
         }
       }
     }
@@ -340,42 +351,93 @@ export async function switchTopicDrillType(topicId: string, newDrillType?: Drill
     const currentDrillType: DrillType = topic.drillType || (currentSteps.length === 3 ? '3-step' : '5-step');
     const targetDrillType: DrillType = newDrillType || (currentDrillType === '5-step' ? '3-step' : '5-step');
 
-    if (currentDrillType === targetDrillType && currentSteps.length === (targetDrillType === '3-step' ? 3 : 5)) {
+    // Only return early if steps are fully valid matching target drill
+    const is3StepValid = targetDrillType === '3-step' && 
+      currentSteps.length === 3 &&
+      currentSteps.some(s => s.stepNumber === 3 && s.title.toLowerCase().includes('benchmark')) &&
+      !currentSteps.some(s => s.title.toLowerCase().includes('anki'));
+
+    const is5StepValid = targetDrillType === '5-step' &&
+      currentSteps.length === 5 &&
+      currentSteps.some(s => s.stepNumber === 5 && s.title.toLowerCase().includes('benchmark')) &&
+      currentSteps.some(s => s.title.toLowerCase().includes('anki'));
+
+    if (currentDrillType === targetDrillType && (is3StepValid || is5StepValid)) {
       return;
     }
 
     const now = Date.now();
 
     if (targetDrillType === '3-step') {
-      // Transitioning to 3-step:
-      // Keep Step 1 ('Study the book') and Step 2 ('Solve book questions').
-      // Retain Benchmark step and renumber it to step 3.
-      // Remove Anki steps (steps 3 & 4 in 5-step).
-      const step1 = currentSteps.find(s => s.stepNumber === 1);
-      const step2 = currentSteps.find(s => s.stepNumber === 2);
-      const benchmarkStep = currentSteps.find(s => s.title.toLowerCase().includes('benchmark') || s.stepNumber === 5 || s.stepNumber === 3);
-
-      const toDelete = currentSteps.filter(s => 
-        s.id !== step1?.id && 
-        s.id !== step2?.id && 
-        s.id !== benchmarkStep?.id
-      );
-
-      for (const del of toDelete) {
-        await db.steps.delete(del.id);
-      }
-
-      if (benchmarkStep) {
-        if (benchmarkStep.stepNumber !== 3) {
-          await db.steps.update(benchmarkStep.id, {
-            stepNumber: 3,
-            title: 'Benchmark on LiveMCQ',
-            contextTag: '@office'
-          });
-        }
+      // 3-Step Drill must strictly be:
+      // 1. Study the book (@desk)
+      // 2. Solve book questions (@desk)
+      // 3. Benchmark on LiveMCQ (@office)
+      
+      // Step 1: Study the book
+      const step1 = currentSteps.find(s => s.stepNumber === 1 || s.title.toLowerCase().includes('study'));
+      if (step1) {
+        await db.steps.update(step1.id, {
+          stepNumber: 1,
+          title: 'Study the book',
+          contextTag: '@desk'
+        });
       } else {
         await db.steps.add({
-          id: `${topicId}-step-3`,
+          id: `${topicId}-step-1`,
+          topicId,
+          stepNumber: 1,
+          title: 'Study the book',
+          contextTag: '@desk',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Step 2: Solve book questions
+      const step2 = currentSteps.find(s => s.stepNumber === 2 || s.title.toLowerCase().includes('solve'));
+      if (step2) {
+        await db.steps.update(step2.id, {
+          stepNumber: 2,
+          title: 'Solve book questions',
+          contextTag: '@desk'
+        });
+      } else {
+        await db.steps.add({
+          id: `${topicId}-step-2`,
+          topicId,
+          stepNumber: 2,
+          title: 'Solve book questions',
+          contextTag: '@desk',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Step 3: Benchmark on LiveMCQ
+      // 1. Check for existing Benchmark step (e.g. from step 5 of a 5-step drill or step 3)
+      const explicitBenchmarkStep = currentSteps.find(s => 
+        s.title.toLowerCase().includes('benchmark') || s.stepNumber === 5
+      );
+
+      // 2. If no explicit benchmark step, reuse step 3 (which may have been incorrectly titled "Create Anki...")
+      // to preserve the user's completion status/scheduled date
+      const step3Candidate = explicitBenchmarkStep || currentSteps.find(s => s.stepNumber === 3 || s.id.endsWith('-step-3'));
+
+      let finalBenchmarkId = step3Candidate?.id;
+
+      if (step3Candidate) {
+        await db.steps.update(step3Candidate.id, {
+          stepNumber: 3,
+          title: 'Benchmark on LiveMCQ',
+          contextTag: '@office'
+        });
+      } else {
+        finalBenchmarkId = `${topicId}-step-3`;
+        await db.steps.add({
+          id: finalBenchmarkId,
           topicId,
           stepNumber: 3,
           title: 'Benchmark on LiveMCQ',
@@ -385,11 +447,75 @@ export async function switchTopicDrillType(topicId: string, newDrillType?: Drill
           scheduledDate: null
         });
       }
+
+      // Filter out and delete all Anki steps and any extra steps
+      const activeIds = new Set([
+        step1?.id || `${topicId}-step-1`,
+        step2?.id || `${topicId}-step-2`,
+        finalBenchmarkId
+      ].filter(Boolean));
+
+      for (const step of currentSteps) {
+        if (!activeIds.has(step.id)) {
+          await db.steps.delete(step.id);
+        }
+      }
     } else {
-      // Transitioning to 5-step:
-      // Current steps might have 3 steps: 1, 2, 3 (Benchmark)
-      // Step 3 (Benchmark) becomes Step 5
-      const benchmarkStep = currentSteps.find(s => s.title.toLowerCase().includes('benchmark') || s.stepNumber === 3);
+      // 5-Step Drill must strictly be:
+      // 1. Study the book (@desk)
+      // 2. Solve book questions (@desk)
+      // 3. Create Anki questions from topic (@office)
+      // 4. Practice Anki questions (@commute)
+      // 5. Benchmark on LiveMCQ (@office)
+
+      // Step 1: Study the book
+      const step1 = currentSteps.find(s => s.stepNumber === 1);
+      if (step1) {
+        await db.steps.update(step1.id, {
+          stepNumber: 1,
+          title: 'Study the book',
+          contextTag: '@desk'
+        });
+      } else {
+        await db.steps.add({
+          id: `${topicId}-step-1`,
+          topicId,
+          stepNumber: 1,
+          title: 'Study the book',
+          contextTag: '@desk',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Step 2: Solve book questions
+      const step2 = currentSteps.find(s => s.stepNumber === 2);
+      if (step2) {
+        await db.steps.update(step2.id, {
+          stepNumber: 2,
+          title: 'Solve book questions',
+          contextTag: '@desk'
+        });
+      } else {
+        await db.steps.add({
+          id: `${topicId}-step-2`,
+          topicId,
+          stepNumber: 2,
+          title: 'Solve book questions',
+          contextTag: '@desk',
+          isCompleted: false,
+          completedAt: null,
+          scheduledDate: null
+        });
+      }
+
+      // Step 5: Benchmark on LiveMCQ
+      const benchmarkStep = currentSteps.find(s => 
+        s.title.toLowerCase().includes('benchmark') || 
+        (!s.title.toLowerCase().includes('anki') && (s.stepNumber === 3 || s.stepNumber === 5))
+      );
+
       if (benchmarkStep) {
         await db.steps.update(benchmarkStep.id, {
           stepNumber: 5,
@@ -409,9 +535,15 @@ export async function switchTopicDrillType(topicId: string, newDrillType?: Drill
         });
       }
 
-      // Add Step 3 (Create Anki)
-      const existingStep3 = currentSteps.find(s => s.stepNumber === 3 && s.title.toLowerCase().includes('anki'));
-      if (!existingStep3) {
+      // Step 3: Create Anki questions from topic
+      const step3 = currentSteps.find(s => s.stepNumber === 3 && s.title.toLowerCase().includes('anki'));
+      if (step3) {
+        await db.steps.update(step3.id, {
+          stepNumber: 3,
+          title: 'Create Anki questions from topic',
+          contextTag: '@office'
+        });
+      } else {
         await db.steps.add({
           id: `${topicId}-step-3`,
           topicId,
@@ -424,9 +556,15 @@ export async function switchTopicDrillType(topicId: string, newDrillType?: Drill
         });
       }
 
-      // Add Step 4 (Practice Anki)
-      const existingStep4 = currentSteps.find(s => s.stepNumber === 4 && s.title.toLowerCase().includes('anki'));
-      if (!existingStep4) {
+      // Step 4: Practice Anki questions
+      const step4 = currentSteps.find(s => s.stepNumber === 4 && s.title.toLowerCase().includes('anki'));
+      if (step4) {
+        await db.steps.update(step4.id, {
+          stepNumber: 4,
+          title: 'Practice Anki questions',
+          contextTag: '@commute'
+        });
+      } else {
         await db.steps.add({
           id: `${topicId}-step-4`,
           topicId,

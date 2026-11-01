@@ -6,14 +6,6 @@ import { playCompletionSound, playTopicCompletedFanfare } from '../../utils/soun
 import confetti from 'canvas-confetti';
 import { Check } from 'lucide-react';
 
-export const STANDARD_STEP_TITLES: Record<number, string> = {
-  1: 'Study the book',
-  2: 'Solve book questions',
-  3: 'Create Anki questions from topic',
-  4: 'Practice Anki questions',
-  5: 'Benchmark on LiveMCQ'
-};
-
 interface PipelineStepsBarProps {
   steps: PipelineStep[];
   topicTitle?: string;

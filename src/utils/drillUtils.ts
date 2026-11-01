@@ -74,6 +74,16 @@ export function getDefaultDrillTypeForSubject(subjectIdOrName?: string | null): 
 }
 
 /**
+ * Explicitly filter out Anki steps from any step collection
+ */
+export function filterAnkiSteps<T extends { title: string; id?: string }>(steps: T[]): T[] {
+  return steps.filter(s => 
+    !s.title.toLowerCase().includes('anki') &&
+    !(s.id && s.id.toLowerCase().includes('anki'))
+  );
+}
+
+/**
  * Generates initial pipeline steps for a topic matching its drill type
  */
 export function createPipelineStepsForDrill(
